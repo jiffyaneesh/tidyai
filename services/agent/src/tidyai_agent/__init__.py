@@ -1,4 +1,4 @@
-"""Study-turn policy. No HTTP, no database, no provider SDK."""
+"""Study-turn policy and provider streaming. No database."""
 
 from tidyai_agent.turn import (
     BLOCK_TYPES,
