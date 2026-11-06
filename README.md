@@ -9,9 +9,9 @@ Research, arguments, and the decisions that follow live in [docs/research](docs/
 | Path | Role |
 | --- | --- |
 | `apps/web` | React shell. Sidebar, chat column, notes pane. |
-| `services/api` | HTTP process. Health only, until the contract is implemented. |
-| `services/agent` | Turn policy: route, card action, note-op checks. No network. |
-| `contracts/openapi.yaml` | Intended API. Not all routes are implemented. |
+| `services/api` | HTTP process. Projects, sessions, streaming turns, note writes. |
+| `services/agent` | Turn policy and the provider stream. No database. |
+| `contracts/openapi.yaml` | Live API. Flashcards are not in this version. |
 | `docker-compose.yml` | Local Postgres with pgvector. |
 
 `services/agent` must not import FastAPI or a database driver. `services/api` owns transactions. The web app never sees a provider key inside a JSON body.
@@ -26,26 +26,21 @@ npm install
 npm run dev
 ```
 
-API:
+Database, then API. The compose file publishes Postgres on localhost port 5434 because 5432 is often already taken. The password is for this local database only.
 
 ```bash
+docker compose up -d
 cd services/api
 python -m venv .venv
-.venv/bin/pip install -e .
+.venv/bin/pip install -e ../agent -e .
 .venv/bin/uvicorn tidyai_api.main:app --reload --port 8000
 ```
+
+Add a provider in Settings. OpenAI-compatible base URLs cover OpenAI, Groq, Together, Ollama, and other local servers. Gemini uses the Gemini protocol. The key stays in the browser.
 
 Agent checks:
 
 ```bash
 cd services/agent
-PYTHONPATH=src python -m unittest discover -s tests -v
+PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
-
-Database (optional until persistence exists):
-
-```bash
-docker compose up -d
-```
-
-The compose password is for local Postgres only.
