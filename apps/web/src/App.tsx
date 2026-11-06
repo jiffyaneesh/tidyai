@@ -161,6 +161,8 @@ export function App() {
           model: active.model,
           patchModel: active.patchModel,
           pageId,
+          embeddingModel: active.embeddingModel,
+          embeddingBaseUrl: active.embeddingBaseUrl,
         },
         active.apiKey,
         (event) => {
@@ -181,6 +183,7 @@ export function App() {
           }
         },
         controller.signal,
+        active.embeddingKey,
       );
       const [saved, sessions] = await Promise.all([listMessages(chatId), listChats(projectId)]);
       setStreaming("");

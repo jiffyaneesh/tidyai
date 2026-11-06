@@ -8,6 +8,9 @@ export type Profile = {
   model: string;
   patchModel: string;
   apiKey: string;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingKey: string;
 };
 
 const STORAGE_KEY = "tidyai.profiles";
@@ -80,7 +83,14 @@ export async function loadProfiles(): Promise<Profile[]> {
     base64ToBytes(stored.data),
   );
   const profiles = JSON.parse(new TextDecoder().decode(plain)) as Profile[];
-  return Array.isArray(profiles) ? profiles : [];
+  if (!Array.isArray(profiles)) return [];
+  return profiles.map((profile) => ({
+    ...profile,
+    patchModel: profile.patchModel ?? "",
+    embeddingModel: profile.embeddingModel ?? "",
+    embeddingBaseUrl: profile.embeddingBaseUrl ?? "",
+    embeddingKey: profile.embeddingKey ?? "",
+  }));
 }
 
 export async function saveProfiles(profiles: Profile[]): Promise<void> {
@@ -122,5 +132,17 @@ export function profileError(profile: Profile): string {
   if (url.username || url.password) return "Base URL must not include a password.";
   if (!profile.model.trim()) return "Model id is required.";
   if (!profile.apiKey.trim()) return "API key is required. A local server can use any placeholder.";
+  if (profile.embeddingBaseUrl.trim()) {
+    let embedUrl: URL;
+    try {
+      embedUrl = new URL(profile.embeddingBaseUrl.trim());
+    } catch {
+      return "Embedding base URL must start with http:// or https://.";
+    }
+    if (embedUrl.protocol !== "http:" && embedUrl.protocol !== "https:") {
+      return "Embedding base URL must start with http:// or https://.";
+    }
+    if (embedUrl.username || embedUrl.password) return "Embedding base URL must not include a password.";
+  }
   return "";
 }

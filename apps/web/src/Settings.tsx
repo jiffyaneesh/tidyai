@@ -9,6 +9,9 @@ const EMPTY: Profile = {
   model: "",
   patchModel: "",
   apiKey: "",
+  embeddingModel: "",
+  embeddingBaseUrl: "",
+  embeddingKey: "",
 };
 
 export function Settings({
@@ -112,6 +115,33 @@ export function Settings({
             placeholder="Optional cheaper model"
           />
         </label>
+        <label>
+          Embedding model
+          <input
+            value={draft.embeddingModel}
+            onChange={(event) => setDraft({ ...draft, embeddingModel: event.target.value })}
+            placeholder="Optional. text-embedding-3-small"
+          />
+        </label>
+        <label>
+          Embedding base URL
+          <input
+            value={draft.embeddingBaseUrl}
+            onChange={(event) => setDraft({ ...draft, embeddingBaseUrl: event.target.value })}
+            placeholder="Same as chat when empty"
+          />
+        </label>
+        <label>
+          Embedding key
+          <input
+            type="password"
+            value={draft.embeddingKey}
+            autoComplete="off"
+            onChange={(event) => setDraft({ ...draft, embeddingKey: event.target.value })}
+            placeholder="Same as chat key when empty"
+          />
+        </label>
+        <p className="hint">Leave embedding empty for keyword search. The chat still runs.</p>
         <label>
           API key
           <input

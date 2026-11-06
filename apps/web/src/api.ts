@@ -92,15 +92,20 @@ export async function streamTurn(
     model: string;
     patchModel: string;
     pageId: string;
+    embeddingModel: string;
+    embeddingBaseUrl: string;
   },
   apiKey: string,
   onEvent: (event: TurnEvent) => void,
   signal: AbortSignal,
+  embeddingKey = "",
 ): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", "X-Provider-Key": apiKey };
+  if (embeddingKey) headers["X-Embedding-Key"] = embeddingKey;
   const response = await fetch(`${API}/v1/chats/${chatId}/turns`, {
     method: "POST",
     signal,
-    headers: { "Content-Type": "application/json", "X-Provider-Key": apiKey },
+    headers,
     body: JSON.stringify({
       text: body.text,
       protocol: body.protocol,
@@ -108,6 +113,8 @@ export async function streamTurn(
       model: body.model,
       patchModel: body.patchModel || null,
       pageId: body.pageId,
+      embeddingModel: body.embeddingModel || null,
+      embeddingBaseUrl: body.embeddingBaseUrl || null,
     }),
   });
   if (!response.ok || !response.body) throw new Error(await readError(response));
