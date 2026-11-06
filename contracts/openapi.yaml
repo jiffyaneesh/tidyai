@@ -1,45 +1,36 @@
 openapi: 3.1.0
 info:
   title: tidyai
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Intended contract. Implemented today: GET /health.
-    Provider keys travel on X-Provider-Key and X-Embedding-Key.
-    They are never fields in a JSON body and never query parameters.
-    The server uses a key for one upstream call and does not store it.
+    Live contract for the local single-user slice.
+    Provider keys travel on X-Provider-Key, never in a JSON body.
+    Flashcards are not in this version.
 
-    Assistant streaming is SSE (text/event-stream) with these event names:
-    text   — a chunk of assistant markdown
-    status — short phase label (retrieving, updating notes)
-    notes  — JSON list of page ids whose blocks changed
-    cards  — JSON list of {id, action} where action is created, updated, or skipped
-    error  — JSON {code, message} with no key material
-    done   — stream finished
-
+    POST /v1/chats/{chatId}/turns is text/event-stream:
+    text, status, notes (JSON list of page ids), error ({code, message}), done.
 servers:
-  - url: http://localhost:8000
-
+  - url: http://127.0.0.1:8000
 paths:
   /health:
     get:
-      summary: Process is up
       operationId: health
       responses:
         "200":
-          description: OK
+          description: Process is up. db is ok or down.
           content:
             application/json:
               schema:
                 type: object
-                required: [status]
+                required: [status, db]
                 properties:
                   status:
                     type: string
-                    const: ok
-
+                  db:
+                    type: string
+                    enum: [ok, down]
   /v1/projects:
     get:
-      summary: List projects for the signed-in user
       operationId: listProjects
       responses:
         "200":
@@ -50,10 +41,7 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Project"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
     post:
-      summary: Create a project
       operationId: createProject
       requestBody:
         required: true
@@ -65,21 +53,28 @@ paths:
               properties:
                 title:
                   type: string
-                  minLength: 1
-                  maxLength: 200
       responses:
         "201":
-          description: Created
+          description: Created, with the root page id
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Project"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
   /v1/projects/{projectId}/chats:
+    get:
+      operationId: listChats
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chat"
     post:
-      summary: Open a study session
       operationId: createChat
       parameters:
         - $ref: "#/components/parameters/ProjectId"
@@ -100,44 +95,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Chat"
-
+  /v1/chats/{chatId}/messages:
+    get:
+      operationId: listMessages
+      parameters:
+        - $ref: "#/components/parameters/ChatId"
+      responses:
+        "200":
+          description: Messages in order
   /v1/chats/{chatId}/turns:
     post:
-      summary: Send a study turn and stream the assistant reply
       operationId: createTurn
       parameters:
         - $ref: "#/components/parameters/ChatId"
         - $ref: "#/components/parameters/ProviderKey"
-        - $ref: "#/components/parameters/EmbeddingKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [text, model]
-              properties:
-                text:
-                  type: string
-                model:
-                  type: string
-                  description: Model id the user enabled. Not inferred server-side.
-                patchModel:
-                  type: string
-                  description: Optional cheaper model for note ops and the card judge.
+              $ref: "#/components/schemas/Turn"
       responses:
         "200":
-          description: SSE stream. See the info description for event names.
+          description: Server-sent events
           content:
             text/event-stream:
               schema:
                 type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
-
+          description: Missing provider key
+  /v1/projects/{projectId}/pages:
+    get:
+      operationId: listPages
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Note pages
   /v1/projects/{projectId}/pages/{pageId}:
     get:
-      summary: Read one note page and its blocks
       operationId: getPage
       parameters:
         - $ref: "#/components/parameters/ProjectId"
@@ -148,34 +144,12 @@ paths:
             type: string
       responses:
         "200":
-          description: Page
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Page"
-
-  /v1/projects/{projectId}/cards/due:
-    get:
-      summary: Cards due for review
-      operationId: dueCards
+          description: Page and blocks
+  /v1/blocks/{blockId}:
+    patch:
+      operationId: patchBlock
       parameters:
-        - $ref: "#/components/parameters/ProjectId"
-      responses:
-        "200":
-          description: Due cards, front only
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CardFront"
-
-  /v1/cards/{cardId}/reviews:
-    post:
-      summary: Rate a card with FSRS
-      operationId: reviewCard
-      parameters:
-        - name: cardId
+        - name: blockId
           in: path
           required: true
           schema:
@@ -186,19 +160,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [rating]
+              required: [version, payload]
               properties:
-                rating:
-                  type: string
-                  enum: [again, hard, good, easy]
+                version:
+                  type: integer
+                payload:
+                  type: object
       responses:
         "200":
-          description: Updated scheduling state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CardFront"
-
+          description: Updated block
+        "409":
+          description: Version conflict
 components:
   parameters:
     ProjectId:
@@ -216,33 +188,10 @@ components:
     ProviderKey:
       name: X-Provider-Key
       in: header
-      required: false
+      required: true
       schema:
         type: string
-      description: User's chat provider key. Required on turns. Never logged.
-    EmbeddingKey:
-      name: X-Embedding-Key
-      in: header
-      required: false
-      schema:
-        type: string
-      description: Optional. Absent means lexical retrieval and exact-key card dedupe.
-  responses:
-    Unauthorized:
-      description: Missing session or missing provider key
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
   schemas:
-    Error:
-      type: object
-      required: [code, message]
-      properties:
-        code:
-          type: string
-        message:
-          type: string
     Project:
       type: object
       required: [id, title]
@@ -250,6 +199,8 @@ components:
         id:
           type: string
         title:
+          type: string
+        rootPageId:
           type: string
     Chat:
       type: object
@@ -261,70 +212,20 @@ components:
           type: string
         title:
           type: string
-    Page:
+    Turn:
       type: object
-      required: [id, title, blocks]
+      required: [text, protocol, baseUrl, model]
       properties:
-        id:
+        text:
           type: string
-        title:
+        protocol:
           type: string
-        blocks:
-          type: array
-          items:
-            $ref: "#/components/schemas/Block"
-    Block:
-      type: object
-      required: [id, type, version]
-      properties:
-        id:
+          enum: [openai_chat, gemini]
+        baseUrl:
           type: string
-        type:
+        model:
           type: string
-          enum:
-            - paragraph
-            - heading
-            - bulleted_list_item
-            - numbered_list_item
-            - to_do
-            - equation
-            - table
-            - callout
-            - toggle
-            - divider
-            - child_page
-        version:
-          type: integer
-        payload:
-          type: object
-          additionalProperties: true
-    NoteOp:
-      type: object
-      required: [op]
-      properties:
-        op:
+        patchModel:
           type: string
-          enum: [insert, replace, delete]
-        blockId:
+        pageId:
           type: string
-        parentId:
-          type: string
-        type:
-          type: string
-        payload:
-          type: object
-          additionalProperties: true
-        seenVersion:
-          type: integer
-          description: Version the model was shown. Mismatch drops this op only.
-    CardFront:
-      type: object
-      required: [id, front, due]
-      properties:
-        id:
-          type: string
-        front:
-          type: string
-        due:
-          type: string
-          format: date-time

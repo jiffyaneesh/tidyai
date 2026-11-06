@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: tidyai
       POSTGRES_DB: tidyai
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       - tidyai-pg:/var/lib/postgresql/data
 
