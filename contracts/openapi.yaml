@@ -1,0 +1,330 @@
+openapi: 3.1.0
+info:
+  title: tidyai
+  version: 0.1.0
+  description: |
+    Intended contract. Implemented today: GET /health.
+    Provider keys travel on X-Provider-Key and X-Embedding-Key.
+    They are never fields in a JSON body and never query parameters.
+    The server uses a key for one upstream call and does not store it.
+
+    Assistant streaming is SSE (text/event-stream) with these event names:
+    text   — a chunk of assistant markdown
+    status — short phase label (retrieving, updating notes)
+    notes  — JSON list of page ids whose blocks changed
+    cards  — JSON list of {id, action} where action is created, updated, or skipped
+    error  — JSON {code, message} with no key material
+    done   — stream finished
+
+servers:
+  - url: http://localhost:8000
+
+paths:
+  /health:
+    get:
+      summary: Process is up
+      operationId: health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+
+  /v1/projects:
+    get:
+      summary: List projects for the signed-in user
+      operationId: listProjects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: Create a project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/projects/{projectId}/chats:
+    post:
+      summary: Open a study session
+      operationId: createChat
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+
+  /v1/chats/{chatId}/turns:
+    post:
+      summary: Send a study turn and stream the assistant reply
+      operationId: createTurn
+      parameters:
+        - $ref: "#/components/parameters/ChatId"
+        - $ref: "#/components/parameters/ProviderKey"
+        - $ref: "#/components/parameters/EmbeddingKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, model]
+              properties:
+                text:
+                  type: string
+                model:
+                  type: string
+                  description: Model id the user enabled. Not inferred server-side.
+                patchModel:
+                  type: string
+                  description: Optional cheaper model for note ops and the card judge.
+      responses:
+        "200":
+          description: SSE stream. See the info description for event names.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/projects/{projectId}/pages/{pageId}:
+    get:
+      summary: Read one note page and its blocks
+      operationId: getPage
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Page"
+
+  /v1/projects/{projectId}/cards/due:
+    get:
+      summary: Cards due for review
+      operationId: dueCards
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Due cards, front only
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CardFront"
+
+  /v1/cards/{cardId}/reviews:
+    post:
+      summary: Rate a card with FSRS
+      operationId: reviewCard
+      parameters:
+        - name: cardId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating:
+                  type: string
+                  enum: [again, hard, good, easy]
+      responses:
+        "200":
+          description: Updated scheduling state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CardFront"
+
+components:
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+    ChatId:
+      name: chatId
+      in: path
+      required: true
+      schema:
+        type: string
+    ProviderKey:
+      name: X-Provider-Key
+      in: header
+      required: false
+      schema:
+        type: string
+      description: User's chat provider key. Required on turns. Never logged.
+    EmbeddingKey:
+      name: X-Embedding-Key
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Optional. Absent means lexical retrieval and exact-key card dedupe.
+  responses:
+    Unauthorized:
+      description: Missing session or missing provider key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    Project:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+    Chat:
+      type: object
+      required: [id, projectId, title]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        title:
+          type: string
+    Page:
+      type: object
+      required: [id, title, blocks]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Block"
+    Block:
+      type: object
+      required: [id, type, version]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - paragraph
+            - heading
+            - bulleted_list_item
+            - numbered_list_item
+            - to_do
+            - equation
+            - table
+            - callout
+            - toggle
+            - divider
+            - child_page
+        version:
+          type: integer
+        payload:
+          type: object
+          additionalProperties: true
+    NoteOp:
+      type: object
+      required: [op]
+      properties:
+        op:
+          type: string
+          enum: [insert, replace, delete]
+        blockId:
+          type: string
+        parentId:
+          type: string
+        type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        seenVersion:
+          type: integer
+          description: Version the model was shown. Mismatch drops this op only.
+    CardFront:
+      type: object
+      required: [id, front, due]
+      properties:
+        id:
+          type: string
+        front:
+          type: string
+        due:
+          type: string
+          format: date-time

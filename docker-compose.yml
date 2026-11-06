@@ -1,0 +1,15 @@
+# Local Postgres only. Password is not a production secret.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: tidyai
+      POSTGRES_PASSWORD: tidyai
+      POSTGRES_DB: tidyai
+    ports:
+      - "5432:5432"
+    volumes:
+      - tidyai-pg:/var/lib/postgresql/data
+
+volumes:
+  tidyai-pg:

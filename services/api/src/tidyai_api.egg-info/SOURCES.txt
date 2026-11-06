@@ -1,0 +1,8 @@
+pyproject.toml
+src/tidyai_api/__init__.py
+src/tidyai_api/main.py
+src/tidyai_api.egg-info/PKG-INFO
+src/tidyai_api.egg-info/SOURCES.txt
+src/tidyai_api.egg-info/dependency_links.txt
+src/tidyai_api.egg-info/requires.txt
+src/tidyai_api.egg-info/top_level.txt
