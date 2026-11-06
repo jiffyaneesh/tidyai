@@ -38,6 +38,8 @@ python -m venv .venv
 
 Add a provider in Settings. OpenAI-compatible base URLs cover OpenAI, Groq, Together, Ollama, and other local servers. Gemini uses the Gemini protocol. The key stays in the browser.
 
+Notes are searched with Postgres full text. An optional embedding model on the same profile adds vectors. Leave it empty and search stays lexical. The chat model can call `search_notes` at most twice per turn. There is no separate vector database.
+
 Agent checks:
 
 ```bash
