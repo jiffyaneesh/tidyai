@@ -1,0 +1,224 @@
+:root {
+  --bg: #f7f5f2;
+  --surface: #e7e1d8;
+  --ink: #1c1917;
+  --muted: #57534e;
+  --accent: #9a3412;
+  --line: #d6cfc4;
+  --user: #efeae3;
+  --side-open: 260px;
+  --side-closed: 56px;
+  --notes-open: 360px;
+  --chat-max: 768px;
+  --radius: 12px;
+  --open: 250ms cubic-bezier(0.2, 0, 0, 1);
+  --close: 200ms cubic-bezier(0.3, 0, 1, 1);
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+button, textarea { font: inherit; color: inherit; }
+
+button { cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.workspace {
+  display: flex;
+  height: 100%;
+  background: var(--bg);
+}
+
+.sidebar, .notes {
+  background: var(--surface);
+  flex: none;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: var(--side-open);
+  transition: width var(--open);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar.closed {
+  width: var(--side-closed);
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.3, 0, 1, 1);
+}
+
+.side-head, .notes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notes-head { justify-content: space-between; }
+
+.side-head h1, .notes-head h2 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.icon-btn, .send {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+}
+
+.send {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 16px;
+}
+
+.nav-list, .note-list { list-style: none; margin: 8px; padding: 0; }
+
+.nav-list button, .note-list button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.nav-list button[aria-current="page"], .note-list button[aria-current="true"] {
+  background: var(--bg);
+  color: var(--accent);
+}
+
+.sidebar.closed .nav-list { margin: 8px 6px; }
+
+.sidebar.closed .nav-list button { text-align: center; padding: 8px 0; }
+
+.chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.thread {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 16px 8px;
+}
+
+.column { max-width: var(--chat-max); margin: 0 auto; }
+
+.msg { margin: 0 0 20px; }
+
+.msg .who {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.msg.user .body {
+  background: var(--user);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.composer {
+  padding: 12px 16px 16px;
+}
+
+.composer form {
+  max-width: var(--chat-max);
+  margin: 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 8px 8px 8px 14px;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  border: 0;
+  background: transparent;
+  min-height: 44px;
+  padding: 10px 0;
+}
+
+.notes {
+  width: var(--notes-open);
+  border-left: 1px solid var(--line);
+  transition: width var(--open);
+  display: flex;
+  flex-direction: column;
+}
+
+.notes.closed {
+  width: 0;
+  border-left: 0;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.3, 0, 1, 1);
+}
+
+.note-body { padding: 8px 16px 16px; overflow: auto; }
+
+.note-body h3 { font-size: 15px; margin: 12px 0 4px; }
+
+.note-body p { margin: 0 0 8px; }
+
+@media (max-width: 960px) {
+  .workspace { position: relative; }
+
+  .notes:not(.closed) {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    box-shadow: -8px 0 24px rgba(28, 25, 23, 0.12);
+  }
+
+  .composer {
+    position: relative;
+    z-index: 3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .notes { transition: none; }
+}
