@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { profileError, type Profile, type Protocol } from "./vault";
 
 const EMPTY: Profile = {
@@ -44,123 +49,134 @@ export function Settings({
   }
 
   return (
-    <div className="settings-backdrop" role="presentation" onClick={onClose}>
-      <div
-        className="settings"
-        role="dialog"
-        aria-labelledby="settings-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2 id="settings-title">Providers</h2>
-        <p className="hint">
-          OpenAI-compatible covers OpenAI, Groq, Together, Ollama, and a local server. Gemini uses
-          the native protocol. The key stays in this browser.
-        </p>
-        <ul className="nav-list">
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Providers</DialogTitle>
+          <DialogDescription>
+            OpenAI-compatible covers OpenAI, Groq, Together, Ollama, and a local server. Gemini uses the native
+            protocol. The key stays in this browser.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="flex flex-col gap-2">
           {profiles.map((profile) => (
-            <li key={profile.id}>
-              <button
+            <li key={profile.id} className="flex items-center gap-2">
+              <Button
                 type="button"
+                variant={profile.id === activeId ? "secondary" : "ghost"}
+                className="min-w-0 flex-1 justify-start"
                 aria-current={profile.id === activeId ? "true" : undefined}
                 onClick={() => onChange(profiles, profile.id)}
               >
-                {profile.label}
-              </button>
-              <button type="button" onClick={() => setDraft(profile)}>
+                <span className="truncate">{profile.label}</span>
+                {profile.id === activeId && <Badge variant="outline">Active</Badge>}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft({ ...profile, embeddingModel: profile.embeddingModel ?? "", embeddingBaseUrl: profile.embeddingBaseUrl ?? "", embeddingKey: profile.embeddingKey ?? "" })}>
                 Edit
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="destructive"
+                size="sm"
                 onClick={() => {
                   const next = profiles.filter((item) => item.id !== profile.id);
                   onChange(next, activeId === profile.id ? next[0]?.id ?? "" : activeId);
+                  if (draft.id === profile.id) setDraft(EMPTY);
                 }}
               >
                 Delete
-              </button>
+              </Button>
             </li>
           ))}
+          {!profiles.length && <li className="text-[0.79rem] text-muted-foreground">No providers yet. Add one below.</li>}
         </ul>
-        <label>
-          Name
-          <input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
-        </label>
-        <label>
-          Protocol
-          <select
-            value={draft.protocol}
-            onChange={(event) => setDraft({ ...draft, protocol: event.target.value as Protocol })}
-          >
-            <option value="openai_chat">OpenAI-compatible</option>
-            <option value="gemini">Gemini</option>
-          </select>
-        </label>
-        <label>
-          Base URL
-          <input
-            value={draft.baseUrl}
-            onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-            placeholder="https://api.groq.com/openai/v1"
-          />
-        </label>
-        <label>
-          Model
-          <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
-        </label>
-        <label>
-          Note model
-          <input
-            value={draft.patchModel}
-            onChange={(event) => setDraft({ ...draft, patchModel: event.target.value })}
-            placeholder="Optional cheaper model"
-          />
-        </label>
-        <label>
-          Embedding model
-          <input
-            value={draft.embeddingModel}
-            onChange={(event) => setDraft({ ...draft, embeddingModel: event.target.value })}
-            placeholder="Optional. text-embedding-3-small"
-          />
-        </label>
-        <label>
-          Embedding base URL
-          <input
-            value={draft.embeddingBaseUrl}
-            onChange={(event) => setDraft({ ...draft, embeddingBaseUrl: event.target.value })}
-            placeholder="Same as chat when empty"
-          />
-        </label>
-        <label>
-          Embedding key
-          <input
-            type="password"
-            value={draft.embeddingKey}
-            autoComplete="off"
-            onChange={(event) => setDraft({ ...draft, embeddingKey: event.target.value })}
-            placeholder="Same as chat key when empty"
-          />
-        </label>
-        <p className="hint">Leave embedding empty for keyword search. The chat still runs.</p>
-        <label>
-          API key
-          <input
-            type="password"
-            value={draft.apiKey}
-            autoComplete="off"
-            onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-          />
-        </label>
-        {error && <p className="banner">{error}</p>}
-        <div className="settings-actions">
-          <button type="button" className="send" onClick={saveDraft}>
-            Save profile
-          </button>
-          <button type="button" onClick={onClose}>
-            Close
-          </button>
+        <div className="grid gap-3">
+          <Field label="Name">
+            <Input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
+          </Field>
+          <Field label="Protocol">
+            <select
+              className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              value={draft.protocol}
+              onChange={(event) => setDraft({ ...draft, protocol: event.target.value as Protocol })}
+            >
+              <option value="openai_chat">OpenAI-compatible</option>
+              <option value="gemini">Gemini</option>
+            </select>
+          </Field>
+          <Field label="Base URL">
+            <Input
+              value={draft.baseUrl}
+              placeholder="https://api.groq.com/openai/v1"
+              onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+            />
+          </Field>
+          <Field label="Model">
+            <Input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} />
+          </Field>
+          <Field label="Note model">
+            <Input
+              value={draft.patchModel}
+              placeholder="Optional cheaper model"
+              onChange={(event) => setDraft({ ...draft, patchModel: event.target.value })}
+            />
+          </Field>
+          <Field label="Embedding model">
+            <Input
+              value={draft.embeddingModel}
+              placeholder="Optional. text-embedding-3-small"
+              onChange={(event) => setDraft({ ...draft, embeddingModel: event.target.value })}
+            />
+          </Field>
+          <Field label="Embedding base URL">
+            <Input
+              value={draft.embeddingBaseUrl}
+              placeholder="Same as chat when empty"
+              onChange={(event) => setDraft({ ...draft, embeddingBaseUrl: event.target.value })}
+            />
+          </Field>
+          <Field label="Embedding key">
+            <Input
+              type="password"
+              autoComplete="off"
+              value={draft.embeddingKey}
+              placeholder="Same as chat key when empty"
+              onChange={(event) => setDraft({ ...draft, embeddingKey: event.target.value })}
+            />
+          </Field>
+          <p className="text-[0.79rem] text-muted-foreground">Leave embedding empty for keyword search. The chat still runs.</p>
+          <Field label="API key">
+            <Input
+              type="password"
+              autoComplete="off"
+              value={draft.apiKey}
+              onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
+            />
+          </Field>
         </div>
-      </div>
-    </div>
+        {error && (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="button" onClick={saveDraft}>
+            Save profile
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Label className="grid gap-1.5">
+      {label}
+      {children}
+    </Label>
   );
 }
