@@ -14,6 +14,8 @@ These notes are the argument, not a pitch. Each file records options, evidence, 
 | [04-retrieval-byok-cost.md](04-retrieval-byok-cost.md) | Hybrid retrieval, when the agent loop runs, who pays, where keys live |
 | [05-architecture.md](05-architecture.md) | Processes, module boundaries, rejected stacks, contract |
 | [06-v1-plan.md](06-v1-plan.md) | First slice after the skeleton: local user, settings-driven providers, chat plus notes |
+| [07-agent-instruction-files.md](07-agent-instruction-files.md) | What belongs in AGENTS.md and CLAUDE.md, and why the rules are checks |
+| [08-rag-tools.md](08-rag-tools.md) | Chunks, pgvector, and a capped search tool. Not a second database |
 
 ## Confidence legend
 
@@ -27,4 +29,4 @@ tidyai is a study workspace. A project is a subject. Inside it, chats are study 
 
 ## What is deliberately not built yet
 
-Chat streaming, the database, and auth are specified in [05-architecture.md](05-architecture.md) and `contracts/openapi.yaml`. The code in `apps/web`, `services/api`, and `services/agent` is the skeleton those decisions require: the pane shell, the HTTP process, and the pure turn rules (route, card action, note-op check) with tests. Wiring a model call before those rules were written would hide the cost decisions inside a prompt.
+Flashcards, a reranker, accounts, and a separate vector database. Search is `search_notes` against Postgres, at most two calls. See [08-rag-tools.md](08-rag-tools.md).

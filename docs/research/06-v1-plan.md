@@ -37,4 +37,4 @@ Robust means the failures are visible and the key is not:
 4. `POST /v1/chats/{id}/turns` streams `text`, then the API commits the message, asks for note ops, validates, auto-applies, emits `notes`.
 5. Web shell reads real projects and pages. The center pane renders the live stream. The right pane refetches on `notes`.
 
-Cards, review, FSRS, and hybrid retrieval indexes wait until a turn can already update a note. Retrieval in this slice is the current page plus the outline, which is the `direct` route. Do not build the vector index in the same change.
+Cards, review, and FSRS wait. Hybrid retrieval was deferred in this plan until a turn could update a note. That wait ended the same day: see [08-rag-tools.md](08-rag-tools.md). Do not add a second database for it.
