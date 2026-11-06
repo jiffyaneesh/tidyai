@@ -229,3 +229,9 @@ components:
           type: string
         pageId:
           type: string
+        embeddingModel:
+          type: string
+          description: Optional. Same protocol as the chat model. Empty means keyword search only.
+        embeddingBaseUrl:
+          type: string
+          description: Optional. Defaults to baseUrl. The embedding key is the X-Embedding-Key header, not this body.

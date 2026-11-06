@@ -15,13 +15,21 @@ from pydantic import BaseModel, Field
 
 from tidyai_agent.notes import (
     apply_note_ops,
+    clean_payload,
     format_outline,
     format_page,
     note_ops_from_answer,
     study_messages,
 )
-from tidyai_agent.notes import clean_payload
-from tidyai_agent.stream import PROTOCOLS, ProviderError, check_base_url, check_model, stream_chat
+from tidyai_agent.retrieve import SEARCH_TOOLS, TOOL_HINT, ToolAssembler, append_tool_results, format_hits
+from tidyai_agent.stream import (
+    PROTOCOLS,
+    ProviderError,
+    check_base_url,
+    check_model,
+    embed_texts,
+    stream_chat,
+)
 from tidyai_api import db
 
 
@@ -41,7 +49,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["*"],
-    allow_headers=["Content-Type", "X-Provider-Key"],
+    allow_headers=["Content-Type", "X-Provider-Key", "X-Embedding-Key"],
 )
 
 
@@ -60,6 +68,8 @@ class TurnIn(BaseModel):
     model: str
     patchModel: str | None = None
     pageId: str | None = None
+    embeddingModel: str | None = None
+    embeddingBaseUrl: str | None = None
 
 
 class BlockIn(BaseModel):
@@ -218,6 +228,7 @@ async def create_turn(
     body: TurnIn,
     request: Request,
     x_provider_key: str | None = Header(default=None, alias="X-Provider-Key"),
+    x_embedding_key: str | None = Header(default=None, alias="X-Embedding-Key"),
 ):
     if body.protocol not in PROTOCOLS:
         return JSONResponse(
@@ -252,40 +263,71 @@ async def create_turn(
     outline = format_outline(prepared["pages"], prepared["blocks"])
     page_text = format_page(prepared["pageBlocks"])
     messages = study_messages(history, outline=outline, page_text=page_text)
+    if messages and messages[0].get("role") == "system":
+        messages[0] = {**messages[0], "content": messages[0]["content"] + TOOL_HINT}
+    embed = _embedding_config(body, base, provider["api_key"], x_embedding_key)
 
     async def events():
-        chunks: list[str] = []
-        finished = False
         try:
-            async for piece in stream_chat(messages=messages, **provider):
-                if await request.is_disconnected():
-                    break
-                chunks.append(piece)
-                yield sse("text", piece)
-            else:
-                finished = True
-        except ProviderError as exc:
-            text = "".join(chunks)
-            if text:
-                await _save_quiet(chat_id, text)
-            yield sse("error", json.dumps({"code": exc.code, "message": exc.message}))
-            yield sse("done", "{}")
-            return
+            await db.sync_project_chunks(prepared["projectId"])
+            if embed:
+                await _embed_pending(prepared["projectId"], embed)
+        except (OperationalError, ProviderError):
+            pass
+
+        chunks: list[str] = []
+        disconnected = False
+        live = messages
+        for round_index in range(3):
+            assembler = ToolAssembler()
+            use_tools = round_index < 2
+            try:
+                async for piece in stream_chat(
+                    messages=live,
+                    tools=SEARCH_TOOLS if use_tools else None,
+                    assembler=assembler,
+                    **provider,
+                ):
+                    if await request.is_disconnected():
+                        disconnected = True
+                        break
+                    chunks.append(piece)
+                    yield sse("text", piece)
+            except ProviderError as exc:
+                text = "".join(chunks)
+                if text:
+                    await _save_quiet(chat_id, text)
+                yield sse("error", json.dumps({"code": exc.code, "message": exc.message}))
+                yield sse("done", "{}")
+                return
+            if disconnected:
+                break
+            calls = [call for call in assembler.calls() if call.name == "search_notes"][:1]
+            if not calls or not use_tools:
+                break
+            yield sse("status", "Searching notes")
+            results = [await _run_search(prepared["projectId"], call.arguments, embed) for call in calls]
+            live = append_tool_results(live, calls, results)
 
         text = "".join(chunks)
+        if disconnected:
+            if text:
+                await _save_quiet(chat_id, text)
+            yield sse("done", "{}")
+            return
+        message_id = ""
         if text:
             try:
-                await db.save_assistant(chat_id, text)
+                message_id = await db.save_assistant(chat_id, text)
             except OperationalError:
                 yield sse("error", json.dumps({"code": "db_down", "message": "Database is not running."}))
                 yield sse("done", "{}")
                 return
-        if not finished or not text:
-            if not text:
-                yield sse(
-                    "error",
-                    json.dumps({"code": "empty", "message": "Provider returned an empty answer."}),
-                )
+        if not text:
+            yield sse(
+                "error",
+                json.dumps({"code": "empty", "message": "Provider returned an empty answer."}),
+            )
             yield sse("done", "{}")
             return
 
@@ -300,10 +342,12 @@ async def create_turn(
                 model=patch_model,
             )
         except ProviderError as exc:
+            await _keep_answer(prepared["projectId"], message_id, text)
             yield sse("status", f"Notes not updated. {exc.message}")
             yield sse("done", "{}")
             return
         if failure:
+            await _keep_answer(prepared["projectId"], message_id, text)
             yield sse("status", failure)
             yield sse("done", "{}")
             return
@@ -316,7 +360,9 @@ async def create_turn(
         )
         try:
             await db.store_apply(prepared["projectId"], result)
+            await db.sync_project_chunks(prepared["projectId"])
         except OperationalError:
+            await _keep_answer(prepared["projectId"], message_id, text)
             yield sse("status", "Notes not updated. Database is not running.")
             yield sse("done", "{}")
             return
@@ -330,6 +376,71 @@ async def create_turn(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _embedding_config(body: TurnIn, chat_base: str, chat_key: str, embedding_key: str | None) -> dict | None:
+    model = (body.embeddingModel or "").strip()
+    if not model:
+        return None
+    try:
+        model = check_model(model)
+        raw_base = (body.embeddingBaseUrl or "").strip()
+        base = check_base_url(raw_base) if raw_base else chat_base
+    except ProviderError:
+        return None
+    return {
+        "protocol": body.protocol,
+        "base_url": base,
+        "api_key": (embedding_key or "").strip() or chat_key,
+        "model": model,
+    }
+
+
+async def _embed_pending(project_id: str, embed: dict) -> None:
+    pending = await db.pending_embeddings(project_id, limit=32)
+    if not pending:
+        return
+    vectors = await embed_texts(texts=[row["content"] for row in pending], **embed)
+    pairs = [
+        (row["id"], row["content_hash"], vector)
+        for row, vector in zip(pending, vectors)
+        if vector
+    ]
+    if pairs:
+        await db.write_embeddings(pairs)
+
+
+async def _run_search(project_id: str, arguments: str, embed: dict | None) -> str:
+    try:
+        payload = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError:
+        payload = {"query": arguments}
+    if not isinstance(payload, dict):
+        payload = {"query": str(payload)}
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        return "No query."
+    vector = None
+    if embed:
+        try:
+            vectors = await embed_texts(texts=[query], **embed)
+            vector = vectors[0] if vectors else None
+        except ProviderError:
+            vector = None
+    try:
+        hits = await db.search_chunks(project_id, query, vector)
+    except OperationalError:
+        return "Search failed because the database is not running."
+    return format_hits(hits)
+
+
+async def _keep_answer(project_id: str, message_id: str, text: str) -> None:
+    if not message_id:
+        return
+    try:
+        await db.sync_project_chunks(project_id, extras=[("assistant_message", message_id, text)])
+    except OperationalError:
+        return
 
 
 async def _save_quiet(chat_id: str, text: str) -> None:

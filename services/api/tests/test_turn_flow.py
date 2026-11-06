@@ -14,10 +14,13 @@ from tidyai_api.main import app
 
 
 class _Provider(BaseHTTPRequestHandler):
+    bodies: list[str] = []
+
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length)
         text = raw.decode()
+        _Provider.bodies.append(text)
         secret = self.headers.get("Authorization", "")
         if "sk-test-secret-value-123456" not in secret:
             self.send_response(401)
@@ -38,9 +41,35 @@ class _Provider(BaseHTTPRequestHandler):
                     ]
                 }
             )
+            payload = json.dumps({"choices": [{"delta": {"content": content}}]})
+        elif "What did I write about inertia" in text and "tool_call_id" not in text:
+            payload = json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_inertia",
+                                        "function": {
+                                            "name": "search_notes",
+                                            "arguments": '{"query":"inertia"}',
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            )
         else:
-            content = "Torque is a turning effect."
-        payload = json.dumps({"choices": [{"delta": {"content": content}}]})
+            content = (
+                "You wrote that inertia resists changes in motion."
+                if "inertia" in text
+                else "Torque is a turning effect."
+            )
+            payload = json.dumps({"choices": [{"delta": {"content": content}}]})
         body = f"data: {payload}\n\ndata: [DONE]\n\n".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -103,6 +132,54 @@ class TurnFlowTest(unittest.TestCase):
         self.assertEqual(messages[-1]["content"], "Torque is a turning effect.")
         renamed = self.client.get(f"/v1/projects/{project['id']}/chats").json()
         self.assertEqual(renamed[0]["title"], "What is torque?")
+
+    def test_search_tool_returns_an_older_note(self):
+        import asyncio
+        from uuid import uuid4
+
+        from psycopg.types.json import Json
+
+        from tidyai_api import db
+
+        secret = "sk-test-secret-value-123456"
+        project = self.client.post("/v1/projects", json={"title": "Inertia"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "New session"}).json()
+
+        async def seed():
+            async with await db.connect() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO blocks (id, page_id, position, type, payload, version)
+                    VALUES (%s, %s, 0, 'paragraph', %s, 1)
+                    """,
+                    (
+                        str(uuid4()),
+                        project["rootPageId"],
+                        Json({"text": "Inertia resists a change in motion."}),
+                    ),
+                )
+                await conn.commit()
+            await db.sync_project_chunks(project["id"])
+
+        asyncio.run(seed())
+        _Provider.bodies.clear()
+        with self.client.stream(
+            "POST",
+            f"/v1/chats/{chat['id']}/turns",
+            headers={"X-Provider-Key": secret},
+            json={
+                "text": "What did I write about inertia?",
+                "protocol": "openai_chat",
+                "baseUrl": f"http://127.0.0.1:{self.port}/v1",
+                "model": "fake",
+                "pageId": project["rootPageId"],
+            },
+        ) as response:
+            raw = "".join(response.iter_text())
+        self.assertIn("Searching notes", raw)
+        self.assertIn("You wrote that inertia resists changes in motion.", raw)
+        self.assertTrue(any("Inertia resists a change in motion." in body for body in _Provider.bodies))
+        self.assertNotIn(secret, raw)
 
 
 if __name__ == "__main__":
