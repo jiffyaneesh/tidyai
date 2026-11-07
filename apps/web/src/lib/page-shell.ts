@@ -5,6 +5,6 @@ export const pageShell = {
   bodyText: "text-[0.79rem]",
   controlInput: "h-10 text-[0.79rem]",
   controlButton: "h-10 text-[0.79rem]",
-  section: "rounded-2xl border border-border/50 bg-card/60 p-4 shadow-sm",
+  section: "rounded-2xl border border-border/40 bg-card/70 p-6 shadow-subtle",
   headerIconButton: "size-8 rounded-lg",
 };
