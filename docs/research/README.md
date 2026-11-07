@@ -4,6 +4,8 @@ Date: 2026-11-06. Goal: decide the product, the interface, the render path, the 
 
 These notes are the argument, not a pitch. Each file records options, evidence, the decision, and what would overturn it. Vendor marketing numbers and single-author benchmarks are labeled. They are not treated as laws.
 
+For the **as-built** system map (processes, tech stack, function-level flows, ceilings), see [architecture.md](../architecture.md).
+
 ## How to read
 
 | File | Decision it locks |
@@ -16,6 +18,9 @@ These notes are the argument, not a pitch. Each file records options, evidence, 
 | [06-v1-plan.md](06-v1-plan.md) | First slice after the skeleton: local user, settings-driven providers, chat plus notes |
 | [07-agent-instruction-files.md](07-agent-instruction-files.md) | What belongs in AGENTS.md and CLAUDE.md, and why the rules are checks |
 | [08-rag-tools.md](08-rag-tools.md) | Chunks, pgvector, and a capped search tool. Not a second database |
+| [09-notes-pane-ui.md](09-notes-pane-ui.md) | Notes pane resize; TipTap rejection later overturned |
+| [10-notes-editor-engine.md](10-notes-editor-engine.md) | BlockNote notes engine; Postgres blocks stay SoT; autosave |
+| [11-study-modes.md](11-study-modes.md) | Notes vs Web; A1 provider web search; B1 notes = pure Q&A |
 
 ## Confidence legend
 
