@@ -58,7 +58,7 @@ export function listChats(projectId: string): Promise<Chat[]> {
 export function createChat(projectId: string): Promise<Chat> {
   return request(`/v1/projects/${projectId}/chats`, {
     method: "POST",
-    body: JSON.stringify({ title: "New session" }),
+    body: JSON.stringify({ title: "Untitled chat" }),
   });
 }
 

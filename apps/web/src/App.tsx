@@ -4,6 +4,8 @@ import { math } from "@streamdown/math";
 import {
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Moon,
   PanelLeft,
@@ -66,12 +68,13 @@ export function App() {
   const [activeId, setActiveId] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [chatsByProject, setChatsByProject] = useState<Record<string, Chat[]>>({});
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [chatId, setChatId] = useState("");
   const [pages, setPages] = useState<NotePage[]>([]);
   const [pageId, setPageId] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,8 +86,10 @@ export function App() {
 
   const active = profiles.find((profile) => profile.id === activeId) ?? null;
   const project = projects.find((item) => item.id === projectId) ?? null;
+  const chats = chatsByProject[projectId] ?? [];
   const session = chats.find((item) => item.id === chatId) ?? null;
-  const visibleChats = chats.filter((chat) => chat.title.toLowerCase().includes(sessionQuery.trim().toLowerCase()));
+  const messages = chatId ? messagesByChat[chatId] ?? [] : [];
+  const query = sessionQuery.trim().toLowerCase();
 
   useEffect(() => {
     void health()
@@ -112,17 +117,23 @@ export function App() {
   useEffect(() => {
     if (!projectId) return;
     let cancel = false;
-    setChatId("");
-    setPageId("");
-    void listChats(projectId).then((rows) => {
-      if (cancel) return;
-      setChats(rows);
-      setChatId(rows[0]?.id ?? "");
-    });
+    setExpandedIds((current) => (current.includes(projectId) ? current : [...current, projectId]));
+    void listChats(projectId)
+      .then((rows) => {
+        if (cancel) return;
+        setChatsByProject((current) => ({ ...current, [projectId]: rows }));
+        setChatId((current) => {
+          if (current && rows.some((row) => row.id === current)) return current;
+          return rows[0]?.id ?? "";
+        });
+      })
+      .catch(() => {
+        if (!cancel) setError("Could not load chats for this subject.");
+      });
     void listPages(projectId).then((rows) => {
       if (cancel) return;
       setPages(rows);
-      setPageId(rows[0]?.id ?? "");
+      setPageId((current) => current || rows[0]?.id || "");
     });
     return () => {
       cancel = true;
@@ -130,21 +141,35 @@ export function App() {
   }, [projectId]);
 
   useEffect(() => {
-    if (!chatId) {
-      setMessages([]);
-      return;
-    }
-    void listMessages(chatId).then(setMessages).catch(() => setMessages([]));
+    if (!chatId) return;
+    let cancel = false;
+    const requested = chatId;
+    void listMessages(requested)
+      .then((rows) => {
+        if (cancel) return;
+        setMessagesByChat((current) => ({ ...current, [requested]: rows }));
+      })
+      .catch(() => {
+        if (!cancel) setMessagesByChat((current) => ({ ...current, [requested]: current[requested] ?? [] }));
+      });
+    return () => {
+      cancel = true;
+    };
   }, [chatId]);
 
   useEffect(() => {
-    if (!projectId || !pageId) {
-      setBlocks([]);
-      return;
-    }
+    if (!projectId || !pageId) return;
+    let cancel = false;
     void getPage(projectId, pageId)
-      .then((page) => setBlocks(page.blocks ?? []))
-      .catch(() => setBlocks([]));
+      .then((page) => {
+        if (!cancel) setBlocks(page.blocks ?? []);
+      })
+      .catch(() => {
+        if (!cancel) setBlocks([]);
+      });
+    return () => {
+      cancel = true;
+    };
   }, [projectId, pageId]);
 
   async function refreshNotes() {
@@ -168,13 +193,28 @@ export function App() {
     }
   }
 
+  function expandSubject(id: string) {
+    setExpandedIds((current) => (current.includes(id) ? current : [...current, id]));
+  }
+
+  function toggleSubject(id: string) {
+    setExpandedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  }
+
   function selectProject(id: string) {
+    expandSubject(id);
     if (id === projectId) return;
     setPageId("");
-    setPages([]);
-    setChatId("");
-    setBlocks([]);
     setProjectId(id);
+  }
+
+  function selectChat(nextProjectId: string, nextChatId: string) {
+    expandSubject(nextProjectId);
+    if (nextProjectId !== projectId) {
+      setPageId("");
+      setProjectId(nextProjectId);
+    }
+    setChatId(nextChatId);
     if (window.matchMedia("(max-width: 959px)").matches) setSideOpen(false);
   }
 
@@ -184,11 +224,13 @@ export function App() {
     try {
       const created = await createProject(title);
       setProjects((current) => [...current, created]);
+      setChatsByProject((current) => ({ ...current, [created.id]: [] }));
       setPageId("");
       setPages([]);
       setChatId("");
       setBlocks([]);
       setProjectId(created.id);
+      expandSubject(created.id);
       setSubjectName("");
       setSubjectOpen(false);
       setError("");
@@ -197,16 +239,19 @@ export function App() {
     }
   }
 
-  async function onCreateChat() {
-    if (!projectId || busy) return;
+  async function onCreateChat(forProjectId = projectId) {
+    if (!forProjectId || busy) return;
     try {
-      const created = await createChat(projectId);
-      setChats((current) => [...current, created]);
-      setChatId(created.id);
-      setMessages([]);
+      const created = await createChat(forProjectId);
+      setChatsByProject((current) => ({
+        ...current,
+        [forProjectId]: [...(current[forProjectId] ?? []), created],
+      }));
+      setMessagesByChat((current) => ({ ...current, [created.id]: [] }));
+      selectChat(forProjectId, created.id);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create that session.");
+      setError(err instanceof Error ? err.message : "Could not create that chat.");
     }
   }
 
@@ -218,13 +263,17 @@ export function App() {
     setStatus("");
     setStreaming("");
     setBusy(true);
-    setMessages((current) => [...current, { id: "pending", role: "user", content: text }]);
+    const activeChat = chatId;
+    setMessagesByChat((current) => ({
+      ...current,
+      [activeChat]: [...(current[activeChat] ?? []), { id: "pending", role: "user", content: text }],
+    }));
     const controller = new AbortController();
     abortRef.current = controller;
     let live = "";
     try {
       await streamTurn(
-        chatId,
+        activeChat,
         {
           text,
           protocol: active.protocol,
@@ -256,10 +305,10 @@ export function App() {
         controller.signal,
         active.embeddingKey,
       );
-      const [saved, sessions] = await Promise.all([listMessages(chatId), listChats(projectId)]);
+      const [saved, sessions] = await Promise.all([listMessages(activeChat), listChats(projectId)]);
       setStreaming("");
-      setMessages(saved);
-      setChats(sessions);
+      setMessagesByChat((current) => ({ ...current, [activeChat]: saved }));
+      setChatsByProject((current) => ({ ...current, [projectId]: sessions }));
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setStatus("Stopped.");
@@ -267,7 +316,8 @@ export function App() {
         setError(err instanceof Error ? err.message : "The turn failed.");
       }
       try {
-        setMessages(await listMessages(chatId));
+        const saved = await listMessages(activeChat);
+        setMessagesByChat((current) => ({ ...current, [activeChat]: saved }));
       } catch {
         // The optimistic user line stays on screen.
       }
@@ -338,78 +388,122 @@ export function App() {
           </div>
           <ScrollArea className="min-h-0 flex-1" id="project-nav">
             <div className="flex flex-col gap-1 p-3">
-              {projects.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-current={item.id === projectId ? "page" : undefined}
-                  aria-label={item.title}
-                  className={cn(
-                    "cursor-pointer truncate rounded-xl px-3 py-2.5 text-left text-sm transition-colors duration-200",
-                    item.id === projectId
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "hover:bg-sidebar-accent/60",
-                    !sideOpen && "px-0 text-center",
-                  )}
-                  onClick={() => selectProject(item.id)}
-                >
-                  {sideOpen ? item.title : item.title.slice(0, 1)}
-                </button>
-              ))}
-              {!projects.length && sideOpen && (
-                <p className={pageShell.subtitle}>No subjects yet.</p>
-              )}
-            </div>
-          </ScrollArea>
-          <div className="flex flex-col gap-3 border-t border-sidebar-border/60 p-3">
-            {sideOpen && (
-              <>
+              {sideOpen && (
                 <Input
                   value={sessionQuery}
-                  placeholder="Filter sessions"
-                  aria-label="Filter sessions"
+                  placeholder="Filter subjects and chats"
+                  aria-label="Filter subjects and chats"
+                  className="mb-2"
                   onChange={(event) => setSessionQuery(event.target.value)}
                 />
-                <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
-                  {visibleChats.map((chat) => (
-                    <li key={chat.id}>
+              )}
+              {projects.map((item) => {
+                const open = expandedIds.includes(item.id);
+                const subjectChats = (chatsByProject[item.id] ?? []).filter(
+                  (chat) => !query || chat.title.toLowerCase().includes(query) || item.title.toLowerCase().includes(query),
+                );
+                if (query && !item.title.toLowerCase().includes(query) && !subjectChats.length) return null;
+                return (
+                  <div key={item.id} className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-0.5">
+                      {sideOpen && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0"
+                          aria-label={open ? `Collapse ${item.title}` : `Expand ${item.title}`}
+                          aria-expanded={open}
+                          onClick={() => {
+                            toggleSubject(item.id);
+                            if (!open && !chatsByProject[item.id]) {
+                              void listChats(item.id).then((rows) =>
+                                setChatsByProject((current) => ({ ...current, [item.id]: rows })),
+                              );
+                            }
+                          }}
+                        >
+                          {open ? <ChevronDown /> : <ChevronRight />}
+                        </Button>
+                      )}
                       <button
                         type="button"
-                        aria-current={chat.id === chatId ? "true" : undefined}
+                        aria-current={item.id === projectId ? "page" : undefined}
+                        aria-label={item.title}
                         className={cn(
-                          "w-full cursor-pointer truncate rounded-xl px-3 py-2 text-left text-sm transition-colors duration-200",
-                          chat.id === chatId ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
+                          "min-w-0 flex-1 cursor-pointer truncate rounded-xl px-2.5 py-2 text-left text-sm transition-colors duration-200",
+                          item.id === projectId
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "hover:bg-sidebar-accent/60",
+                          !sideOpen && "px-0 text-center",
                         )}
-                        onClick={() => setChatId(chat.id)}
+                        onClick={() => {
+                          selectProject(item.id);
+                          if (!chatsByProject[item.id]) {
+                            void listChats(item.id).then((rows) =>
+                              setChatsByProject((current) => ({ ...current, [item.id]: rows })),
+                            );
+                          }
+                        }}
                       >
-                        {chat.title}
+                        {sideOpen ? item.title : item.title.slice(0, 1)}
                       </button>
-                    </li>
-                  ))}
-                  {!visibleChats.length && <li className={pageShell.subtitle}>No sessions match.</li>}
-                </ul>
-              </>
-            )}
-            <div className="flex flex-col gap-2">
-              <IconTip label="New subject">
-                <Button type="button" variant="secondary" size={sideOpen ? "sm" : "icon"} aria-label="New subject" onClick={() => setSubjectOpen(true)}>
-                  <Plus />
-                  {sideOpen && "Subject"}
-                </Button>
-              </IconTip>
-              <IconTip label="New session">
-                <Button type="button" variant="outline" size={sideOpen ? "sm" : "icon"} aria-label="New session" disabled={!projectId || busy} onClick={() => void onCreateChat()}>
-                  <BookOpen />
-                  {sideOpen && "Session"}
-                </Button>
-              </IconTip>
-              <IconTip label="Settings">
-                <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
-                  <SettingsIcon />
-                  {sideOpen && "Settings"}
-                </Button>
-              </IconTip>
+                    </div>
+                    {sideOpen && open && (
+                      <ul className="ml-4 flex flex-col gap-0.5 border-l border-sidebar-border/70 pl-2">
+                        {subjectChats.map((chat) => (
+                          <li key={chat.id}>
+                            <button
+                              type="button"
+                              aria-current={chat.id === chatId ? "true" : undefined}
+                              className={cn(
+                                "w-full cursor-pointer truncate rounded-lg px-2.5 py-1.5 text-left text-[0.79rem] transition-colors duration-200",
+                                chat.id === chatId
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50",
+                              )}
+                              onClick={() => selectChat(item.id, chat.id)}
+                            >
+                              {chat.title}
+                            </button>
+                          </li>
+                        ))}
+                        {!subjectChats.length && (
+                          <li className={cn(pageShell.subtitle, "px-2.5 py-1")}>No chats yet.</li>
+                        )}
+                        <li>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-full justify-start px-2.5 text-[0.79rem]"
+                            disabled={busy}
+                            onClick={() => void onCreateChat(item.id)}
+                          >
+                            <Plus /> New chat
+                          </Button>
+                        </li>
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+              {!projects.length && sideOpen && <p className={pageShell.subtitle}>No subjects yet.</p>}
             </div>
+          </ScrollArea>
+          <div className="flex flex-col gap-2 border-t border-sidebar-border/60 p-3">
+            <IconTip label="New subject">
+              <Button type="button" variant="secondary" size={sideOpen ? "sm" : "icon"} aria-label="New subject" onClick={() => setSubjectOpen(true)}>
+                <Plus />
+                {sideOpen && "Subject"}
+              </Button>
+            </IconTip>
+            <IconTip label="Settings">
+              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+                <SettingsIcon />
+                {sideOpen && "Settings"}
+              </Button>
+            </IconTip>
           </div>
         </aside>
 
@@ -427,7 +521,7 @@ export function App() {
             </Button>
             <div className="min-w-0 flex-1">
               <h1 className={cn(pageShell.title, "truncate text-base")}>{project?.title ?? "tidyai"}</h1>
-              <p className={cn(pageShell.subtitle, "truncate")}>{session?.title ?? "Pick a session or start one."}</p>
+              <p className={cn(pageShell.subtitle, "truncate")}>{session?.title ?? "Pick a chat or start one."}</p>
             </div>
             {active && <span className="tag-blue hidden md:inline">{active.label}</span>}
             {status && <Badge variant="secondary" className="hidden sm:inline-flex">{status}</Badge>}
@@ -435,22 +529,22 @@ export function App() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm" disabled={!projectId}>
-                  Session
+                  Chat
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Sessions</DropdownMenuLabel>
+                <DropdownMenuLabel>Chats</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {chats.map((chat) => (
-                  <DropdownMenuItem key={chat.id} onSelect={() => setChatId(chat.id)}>
+                  <DropdownMenuItem key={chat.id} onSelect={() => selectChat(projectId, chat.id)}>
                     {chat.id === chatId && <Check />}
                     {chat.title}
                   </DropdownMenuItem>
                 ))}
-                {!chats.length && <DropdownMenuItem disabled>No sessions yet</DropdownMenuItem>}
+                {!chats.length && <DropdownMenuItem disabled>No chats yet</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={busy} onSelect={() => void onCreateChat()}>
-                  New session
+                  New chat
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -506,9 +600,9 @@ export function App() {
             </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="relative flex min-h-0 flex-1">
-              <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <div className="relative flex min-h-0 flex-1">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <ScrollArea className="min-h-0 flex-1">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
                   {dbDown && (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm" role="alert">
@@ -537,10 +631,10 @@ export function App() {
                   )}
                   {project && !chatId && (
                     <section className={pageShell.section}>
-                      <h2 className={pageShell.title}>No session yet</h2>
-                      <p className={cn(pageShell.subtitle, "mt-1")}>A session is one study conversation. Notes stay on the subject.</p>
+                      <h2 className={pageShell.title}>No chat yet</h2>
+                      <p className={cn(pageShell.subtitle, "mt-1")}>A chat is one study conversation. Notes stay on the subject.</p>
                       <Button type="button" className="mt-4" onClick={() => void onCreateChat()}>
-                        <Plus /> New session
+                        <Plus /> New chat
                       </Button>
                     </section>
                   )}
@@ -554,7 +648,7 @@ export function App() {
                   )}
                   {messages.map((message) => (
                     <article
-                      key={message.id}
+                      key={`${chatId}-${message.id}`}
                       className={cn(
                         "rounded-2xl border px-5 py-4 shadow-subtle",
                         message.role === "user" ? "ml-10 border-transparent bg-secondary/80" : "mr-10 border-border/40 bg-card/80",
@@ -590,89 +684,89 @@ export function App() {
                   )}
                 </div>
               </ScrollArea>
-              <aside
-                id="notes-pane"
-                aria-label="Notes"
-                aria-hidden={!notesOpen}
-                className={cn(
-                  "flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background/80 backdrop-blur-md transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-                  "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:shadow-soft",
-                  notesOpen ? "w-[min(22.5rem,100%)] opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
-                )}
+              <form
+                className="relative z-10 px-4 pb-5 pt-2 sm:px-6"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void onSend();
+                }}
               >
-                <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
-                  <h2 className="truncate text-sm font-medium">{project?.title ?? "Notes"}</h2>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setNotesOpen(false)}>
-                    Close
-                  </Button>
-                </div>
-                <ScrollArea className="min-h-0 flex-1">
-                  <div className="flex flex-col gap-3 p-3">
-                    <ul className="flex flex-col gap-1">
-                      {pages.map((page) => (
-                        <li key={page.id} style={{ paddingLeft: page.depth * 12 }}>
-                          <button
-                            type="button"
-                            aria-current={page.id === pageId ? "true" : undefined}
-                            className={cn(
-                              "w-full cursor-pointer truncate rounded-md px-2 py-1 text-left text-sm",
-                              page.id === pageId ? "bg-accent-soft text-sidebar-accent-foreground" : "hover:bg-muted",
-                            )}
-                            onClick={() => setPageId(page.id)}
-                          >
-                            {page.title}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    {blocks.map((block) => (
-                      <BlockView key={block.id} block={block} onSave={onSaveBlock} onOpenPage={setPageId} />
-                    ))}
-                    {!blocks.length && <p className={pageShell.subtitle}>Notes from this session land here.</p>}
+                <div className="mx-auto max-w-3xl rounded-[1.35rem] border border-border/50 bg-card/90 p-2 shadow-soft transition-[box-shadow,border-color] duration-200 focus-within:border-ring/30 focus-within:shadow-glow">
+                  <label className="sr-only" htmlFor="draft">
+                    Message
+                  </label>
+                  <Textarea
+                    id="draft"
+                    rows={2}
+                    placeholder={active ? `Study ${project?.title ?? "a subject"}` : "Add a provider in Settings"}
+                    value={draft}
+                    disabled={!active || busy || !chatId}
+                    className="min-h-14 border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void onSend();
+                      }
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-3 px-2 pb-1">
+                    <p className="text-xs text-muted-foreground">Enter sends. Shift+Enter adds a line.</p>
+                    {busy ? (
+                      <Button type="button" variant="destructive" size="sm" className="rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
+                        <Square /> Stop
+                      </Button>
+                    ) : (
+                      <Button type="submit" size="sm" className="rounded-full px-4" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
+                        <Send /> Send
+                      </Button>
+                    )}
                   </div>
-                </ScrollArea>
-              </aside>
-            </div>
-            <form
-              className="relative z-10 px-4 pb-5 pt-2 sm:px-6"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void onSend();
-              }}
-            >
-              <div className="mx-auto max-w-3xl rounded-[1.35rem] border border-border/50 bg-card/90 p-2 shadow-soft transition-[box-shadow,border-color] duration-200 focus-within:border-ring/30 focus-within:shadow-glow">
-                <label className="sr-only" htmlFor="draft">
-                  Message
-                </label>
-                <Textarea
-                  id="draft"
-                  rows={2}
-                  placeholder={active ? `Study ${project?.title ?? "a subject"}` : "Add a provider in Settings"}
-                  value={draft}
-                  disabled={!active || busy || !chatId}
-                  className="min-h-14 border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void onSend();
-                    }
-                  }}
-                />
-                <div className="flex items-center justify-between gap-3 px-2 pb-1">
-                  <p className="text-xs text-muted-foreground">Enter sends. Shift+Enter adds a line.</p>
-                  {busy ? (
-                    <Button type="button" variant="destructive" size="sm" className="rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
-                      <Square /> Stop
-                    </Button>
-                  ) : (
-                    <Button type="submit" size="sm" className="rounded-full px-4" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
-                      <Send /> Send
-                    </Button>
-                  )}
                 </div>
+              </form>
+            </div>
+            <aside
+              id="notes-pane"
+              aria-label="Notes"
+              aria-hidden={!notesOpen}
+              className={cn(
+                "flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background/80 backdrop-blur-md transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+                "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:shadow-soft",
+                notesOpen ? "w-[min(22.5rem,100%)] opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
+              )}
+            >
+              <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
+                <h2 className="truncate text-sm font-medium">{project?.title ?? "Notes"}</h2>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setNotesOpen(false)}>
+                  Close
+                </Button>
               </div>
-            </form>
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="flex flex-col gap-3 p-3">
+                  <ul className="flex flex-col gap-1">
+                    {pages.map((page) => (
+                      <li key={page.id} style={{ paddingLeft: page.depth * 12 }}>
+                        <button
+                          type="button"
+                          aria-current={page.id === pageId ? "true" : undefined}
+                          className={cn(
+                            "w-full cursor-pointer truncate rounded-md px-2 py-1 text-left text-sm",
+                            page.id === pageId ? "bg-accent-soft text-sidebar-accent-foreground" : "hover:bg-muted",
+                          )}
+                          onClick={() => setPageId(page.id)}
+                        >
+                          {page.title}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {blocks.map((block) => (
+                    <BlockView key={block.id} block={block} onSave={onSaveBlock} onOpenPage={setPageId} />
+                  ))}
+                  {!blocks.length && <p className={pageShell.subtitle}>Notes from this chat land here.</p>}
+                </div>
+              </ScrollArea>
+            </aside>
           </div>
         </div>
 
