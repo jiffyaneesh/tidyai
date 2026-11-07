@@ -186,6 +186,56 @@ class TurnFlowTest(unittest.TestCase):
         self.assertNotIn("event: notes", raw)
         self.assertNotIn(secret, raw)
 
+    def test_memory_cue_forces_search_before_the_model(self):
+        import asyncio
+        from uuid import uuid4
+
+        from psycopg.types.json import Json
+
+        from tidyai_api import db
+
+        secret = "sk-test-secret-value-123456"
+        project = self.client.post("/v1/projects", json={"title": "Memory"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
+
+        async def seed():
+            async with await db.connect() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO blocks (id, page_id, position, type, payload, version)
+                    VALUES (%s, %s, 0, 'paragraph', %s, 1)
+                    """,
+                    (
+                        str(uuid4()),
+                        project["rootPageId"],
+                        Json({"text": "Angular momentum is conserved."}),
+                    ),
+                )
+                await conn.commit()
+            await db.sync_project_chunks(project["id"])
+
+        asyncio.run(seed())
+        _Provider.bodies.clear()
+        with self.client.stream(
+            "POST",
+            f"/v1/chats/{chat['id']}/turns",
+            headers={"X-Provider-Key": secret},
+            json={
+                "text": "remind me what we covered about momentum",
+                "protocol": "openai_chat",
+                "baseUrl": f"http://127.0.0.1:{self.port}/v1",
+                "model": "fake",
+                "pageId": project["rootPageId"],
+                "mode": "notes",
+            },
+        ) as response:
+            raw = "".join(response.iter_text())
+        self.assertIn("Searching notes", raw)
+        self.assertIn("event: citations", raw)
+        self.assertTrue(any("Angular momentum is conserved." in body for body in _Provider.bodies))
+        self.assertNotIn("event: notes", raw)
+        self.assertNotIn(secret, raw)
+
     def test_put_page_blocks_replaces_the_tree(self):
         from uuid import uuid4
 

@@ -21,7 +21,14 @@ from tidyai_agent.notes import (
     note_ops_from_answer,
     study_messages,
 )
-from tidyai_agent.retrieve import SEARCH_TOOLS, TOOL_HINT, ToolAssembler, append_tool_results, format_hits
+from tidyai_agent.retrieve import (
+    SEARCH_TOOLS,
+    TOOL_HINT,
+    ToolAssembler,
+    ToolCall,
+    append_tool_results,
+    format_hits,
+)
 from tidyai_agent.stream import (
     PROTOCOLS,
     ProviderError,
@@ -30,6 +37,7 @@ from tidyai_agent.stream import (
     embed_texts,
     stream_chat,
 )
+from tidyai_agent.turn import route_turn
 from tidyai_api import db
 
 
@@ -353,6 +361,22 @@ async def create_turn(
                 yield sse("done", "{}")
                 return
         else:
+            route = route_turn(
+                body.text,
+                project_has_notes=bool(prepared["blocks"]),
+            )
+            # P3: memory / multi-note cues force one search before the model speaks.
+            if route.name in {"retrieve", "agentic"}:
+                yield sse("status", "Searching notes")
+                forced = ToolCall(
+                    id="forced_search",
+                    name="search_notes",
+                    arguments=json.dumps({"query": body.text}),
+                )
+                result, citations = await _run_search(prepared["projectId"], forced.arguments, embed)
+                if citations:
+                    yield sse("citations", json.dumps(citations))
+                live = append_tool_results(live, [forced], [result])
             for round_index in range(3):
                 assembler = ToolAssembler()
                 use_tools = round_index < 2
@@ -381,7 +405,11 @@ async def create_turn(
                 if not calls or not use_tools:
                     break
                 yield sse("status", "Searching notes")
-                results = [await _run_search(prepared["projectId"], call.arguments, embed) for call in calls]
+                packed = [await _run_search(prepared["projectId"], call.arguments, embed) for call in calls]
+                results = [item[0] for item in packed]
+                citations = [hit for item in packed for hit in item[1]]
+                if citations:
+                    yield sse("citations", json.dumps(citations))
                 live = append_tool_results(live, calls, results)
 
         text = "".join(chunks)
@@ -490,7 +518,9 @@ async def _embed_pending(project_id: str, embed: dict) -> None:
         await db.write_embeddings(pairs)
 
 
-async def _run_search(project_id: str, arguments: str, embed: dict | None) -> str:
+async def _run_search(
+    project_id: str, arguments: str, embed: dict | None
+) -> tuple[str, list[dict]]:
     try:
         payload = json.loads(arguments) if arguments else {}
     except json.JSONDecodeError:
@@ -499,7 +529,7 @@ async def _run_search(project_id: str, arguments: str, embed: dict | None) -> st
         payload = {"query": str(payload)}
     query = str(payload.get("query") or "").strip()
     if not query:
-        return "No query."
+        return "No query.", []
     vector = None
     if embed:
         try:
@@ -510,8 +540,16 @@ async def _run_search(project_id: str, arguments: str, embed: dict | None) -> st
     try:
         hits = await db.search_chunks(project_id, query, vector)
     except OperationalError:
-        return "Search failed because the database is not running."
-    return format_hits(hits)
+        return "Search failed because the database is not running.", []
+    citations = [
+        {
+            "sourceType": hit.get("source_type"),
+            "sourceId": hit.get("source_id"),
+            "snippet": str(hit.get("content") or "").replace("\n", " ")[:140],
+        }
+        for hit in hits
+    ]
+    return format_hits(hits), citations
 
 
 async def _keep_answer(project_id: str, message_id: str, text: str) -> None:

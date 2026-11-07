@@ -525,7 +525,7 @@ async def search_chunks(project_id: str, query: str, embedding: list[float] | No
         rows = await (
             await conn.execute(
                 """
-                SELECT id, content, source_type FROM chunks
+                SELECT id, content, source_type, source_id FROM chunks
                 WHERE project_id = %s AND id = ANY(%s)
                 """,
                 (project_id, ranked),

@@ -55,9 +55,12 @@ import {
   type Project,
 } from "./api";
 import { loadStudyMode, saveStudyMode, type StudyMode } from "./lib/study-mode";
+import { bumpStudyStat, loadStudyStats, type StudyStats } from "./lib/study-stats";
 import { NotesEditor } from "./notes-editor";
 import { Settings } from "./Settings";
 import { loadActiveId, loadProfiles, saveActiveId, saveProfiles, type Profile } from "./vault";
+
+type Citation = { sourceType?: string; sourceId?: string; snippet?: string };
 
 export function App() {
   const { theme, toggle } = useTheme();
@@ -91,6 +94,8 @@ export function App() {
   const [dbDown, setDbDown] = useState(false);
   const [copiedId, setCopiedId] = useState("");
   const [studyMode, setStudyMode] = useState<StudyMode>("web");
+  const [citations, setCitations] = useState<Citation[]>([]);
+  const [studyStats, setStudyStats] = useState<StudyStats>(() => loadStudyStats());
   const abortRef = useRef<AbortController | null>(null);
 
   const active = profiles.find((profile) => profile.id === activeId) ?? null;
@@ -318,8 +323,10 @@ export function App() {
     setError("");
     setStatus("");
     setStreaming("");
+    setCitations([]);
     setBusy(true);
     const activeChat = chatId;
+    const turnMode = studyMode;
     setMessagesByChat((current) => ({
       ...current,
       [activeChat]: [...(current[activeChat] ?? []), { id: "pending", role: "user", content: text }],
@@ -328,6 +335,7 @@ export function App() {
     abortRef.current = controller;
     let live = "";
     let sawError = false;
+    let sawNotes = false;
     try {
       await streamTurn(
         activeChat,
@@ -340,7 +348,7 @@ export function App() {
           pageId,
           embeddingModel: active.embeddingModel,
           embeddingBaseUrl: active.embeddingBaseUrl,
-          mode: studyMode,
+          mode: turnMode,
         },
         active.apiKey,
         (event) => {
@@ -349,6 +357,19 @@ export function App() {
             setStreaming(live);
           } else if (event.event === "status") {
             setStatus(event.data);
+            if (event.data === "Searching notes") {
+              setStudyStats(bumpStudyStat("searches"));
+            }
+          } else if (event.event === "citations") {
+            try {
+              const parsed = JSON.parse(event.data) as Citation[];
+              if (Array.isArray(parsed) && parsed.length) {
+                setCitations(parsed);
+                setStudyStats(bumpStudyStat("hits", parsed.length));
+              }
+            } catch {
+              // Ignore malformed citation payloads.
+            }
           } else if (event.event === "error") {
             sawError = true;
             try {
@@ -358,6 +379,7 @@ export function App() {
               setError("The provider call failed.");
             }
           } else if (event.event === "notes") {
+            sawNotes = true;
             void refreshNotes();
           }
         },
@@ -369,6 +391,9 @@ export function App() {
       setMessagesByChat((current) => ({ ...current, [activeChat]: saved }));
       setChatsByProject((current) => ({ ...current, [projectId]: sessions }));
       if (!sawError) setStatus("");
+      if (turnMode === "notes" && !sawNotes && !sawError) {
+        setStudyStats(bumpStudyStat("noteSkips"));
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setStatus(live ? "Stopped. Partial answer kept when the server saved it." : "Stopped.");
@@ -612,6 +637,11 @@ export function App() {
             </div>
             {active && <span className="tag-blue hidden md:inline">{active.label}</span>}
             {status && <Badge variant="secondary" className="hidden sm:inline-flex">{status}</Badge>}
+            {(studyStats.searches > 0 || studyStats.hits > 0 || studyStats.noteSkips > 0) && (
+              <span className="hidden text-[0.68rem] text-muted-foreground lg:inline" title="Local study counters">
+                search {studyStats.searches} · hits {studyStats.hits} · skip {studyStats.noteSkips}
+              </span>
+            )}
             <div className="flex shrink-0 items-center gap-1">
             <div className="mr-1 flex rounded-lg border border-border/50 p-0.5" role="group" aria-label="Study mode">
               <Button
@@ -794,6 +824,19 @@ export function App() {
                         </Streamdown>
                       </div>
                     </article>
+                  )}
+                  {!!citations.length && (
+                    <aside className="mr-10 rounded-xl border border-border/30 bg-secondary/40 px-4 py-3" aria-label="Note citations">
+                      <p className="mb-2 text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">From notes</p>
+                      <ul className="flex flex-col gap-1.5">
+                        {citations.slice(0, 6).map((hit, index) => (
+                          <li key={`${hit.sourceId ?? "hit"}-${index}`} className="truncate text-[0.79rem] text-muted-foreground">
+                            <span className="font-medium text-foreground/80">{hit.sourceType ?? "note"}</span>
+                            {hit.snippet ? ` — ${hit.snippet}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </aside>
                   )}
                 </div>
               </ScrollArea>
