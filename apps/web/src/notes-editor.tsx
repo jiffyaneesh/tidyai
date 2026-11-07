@@ -34,7 +34,9 @@ export function NotesEditor({
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [error, setError] = useState("");
   const dirtyRef = useRef(false);
+  const bootRef = useRef(true);
   const timerRef = useRef<number | null>(null);
+  const appliedRevision = useRef(revision);
   const lastSavedRef = useRef<TidyaiBlock[]>(
     blocks.map((block) => ({ id: block.id, type: block.type, payload: block.payload })),
   );
@@ -43,13 +45,32 @@ export function NotesEditor({
     blocks.map((block) => ({ id: block.id, type: block.type, payload: block.payload })),
   );
 
+  // Remount only when the page changes. Session reloads bump revision and replace in place.
   const editor = useCreateBlockNote(
     {
       schema: notesSchema,
       initialContent: initial as never,
     },
-    [pageId, revision],
+    [pageId],
   );
+
+  useEffect(() => {
+    if (appliedRevision.current === revision) return;
+    appliedRevision.current = revision;
+    const next = toBlockNote(
+      blocks.map((block) => ({ id: block.id, type: block.type, payload: block.payload })),
+    );
+    editor.replaceBlocks(editor.document, next as never);
+    lastSavedRef.current = blocks.map((block) => ({
+      id: block.id,
+      type: block.type,
+      payload: block.payload,
+    }));
+    dirtyRef.current = false;
+    bootRef.current = true;
+    setSaveState("idle");
+    setError("");
+  }, [revision, blocks, editor]);
 
   async function flush(doc = editor.document) {
     const mapped = fromBlockNote(doc as never);
@@ -86,7 +107,6 @@ export function NotesEditor({
     }, 500);
   }
 
-  const bootRef = useRef(true);
   useEditorChange(() => {
     // BlockNote can emit an initial change while hydrating. Skip that one.
     if (bootRef.current) {
@@ -95,14 +115,6 @@ export function NotesEditor({
     }
     scheduleSave();
   }, editor);
-
-  useEffect(() => {
-    lastSavedRef.current = blocks.map((block) => ({
-      id: block.id,
-      type: block.type,
-      payload: block.payload,
-    }));
-  }, [pageId, revision, blocks]);
 
   useEffect(() => {
     return () => {

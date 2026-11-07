@@ -761,7 +761,7 @@ export function App() {
                   )}
                   {messages.map((message) => (
                     <article
-                      key={`${chatId}-${message.id}`}
+                      key={message.id}
                       className={cn(
                         "rounded-2xl border px-5 py-4 shadow-subtle",
                         message.role === "user" ? "ml-10 border-transparent bg-secondary/80" : "mr-10 border-border/40 bg-card/80",
@@ -908,7 +908,7 @@ export function App() {
                 )}
                 {projectId && pageId ? (
                   <NotesEditor
-                    key={`${pageId}:${notesRevision}`}
+                    key={pageId}
                     projectId={projectId}
                     pageId={pageId}
                     blocks={blocks}
