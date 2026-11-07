@@ -152,8 +152,9 @@ async def prepare_turn(chat_id: str, text: str, page_id: str | None) -> dict | N
             if chat is None:
                 return None
             title = chat["title"]
-            if title == "New session":
-                title = text.strip().split("\n", 1)[0][:80] or "New session"
+            # Older rows may still say New session. Both rename on the first user turn.
+            if title in {"Untitled chat", "New session"}:
+                title = text.strip().split("\n", 1)[0][:80] or "Untitled chat"
                 await conn.execute("UPDATE chats SET title = %s WHERE id = %s", (title, chat_id))
             await conn.execute(
                 "INSERT INTO messages (id, chat_id, role, content) VALUES (%s, %s, 'user', %s)",

@@ -108,7 +108,7 @@ class TurnFlowTest(unittest.TestCase):
     def test_stream_saves_the_answer_and_applies_a_note(self):
         secret = "sk-test-secret-value-123456"
         project = self.client.post("/v1/projects", json={"title": "Flow test"}).json()
-        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "New session"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
         with self.client.stream(
             "POST",
             f"/v1/chats/{chat['id']}/turns",
@@ -143,7 +143,7 @@ class TurnFlowTest(unittest.TestCase):
 
         secret = "sk-test-secret-value-123456"
         project = self.client.post("/v1/projects", json={"title": "Inertia"}).json()
-        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "New session"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
 
         async def seed():
             async with await db.connect() as conn:

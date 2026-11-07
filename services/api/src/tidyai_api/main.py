@@ -58,7 +58,7 @@ class ProjectIn(BaseModel):
 
 
 class ChatIn(BaseModel):
-    title: str = Field(default="New session", min_length=1, max_length=200)
+    title: str = Field(default="Untitled chat", min_length=1, max_length=200)
 
 
 class TurnIn(BaseModel):
