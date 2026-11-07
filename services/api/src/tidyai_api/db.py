@@ -286,6 +286,63 @@ async def update_block(block_id: str, version: int, payload: dict) -> dict | Non
         return saved
 
 
+async def replace_page_blocks(project_id: str, page_id: str, blocks: list[dict]) -> list[dict] | None:
+    """Replace the ordered block list for one page. Preserves version when id+type+payload match."""
+    async with await connect() as conn:
+        async with conn.transaction():
+            page = await (
+                await conn.execute(
+                    "SELECT id FROM pages WHERE id = %s AND project_id = %s",
+                    (page_id, project_id),
+                )
+            ).fetchone()
+            if page is None:
+                return None
+            existing = await (
+                await conn.execute(
+                    """
+                    SELECT id, type, payload, version
+                    FROM blocks WHERE page_id = %s
+                    """,
+                    (page_id,),
+                )
+            ).fetchall()
+            by_id = {row["id"]: row for row in existing}
+            await conn.execute("DELETE FROM blocks WHERE page_id = %s", (page_id,))
+            saved: list[dict] = []
+            for position, block in enumerate(blocks):
+                prior = by_id.get(block["id"])
+                if (
+                    prior is not None
+                    and prior["type"] == block["type"]
+                    and prior["payload"] == block["payload"]
+                ):
+                    version = prior["version"]
+                elif prior is not None:
+                    version = prior["version"] + 1
+                else:
+                    version = 1
+                row = await (
+                    await conn.execute(
+                        """
+                        INSERT INTO blocks (id, page_id, position, type, payload, version)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING id, page_id, position, type, payload, version
+                        """,
+                        (
+                            block["id"],
+                            page_id,
+                            position,
+                            block["type"],
+                            Json(block["payload"]),
+                            version,
+                        ),
+                    )
+                ).fetchone()
+                saved.append(row)
+            return saved
+
+
 def _chat(row: dict) -> dict:
     return {"id": row["id"], "projectId": row["project_id"], "title": row["title"]}
 

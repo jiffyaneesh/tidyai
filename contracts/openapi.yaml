@@ -145,6 +145,44 @@ paths:
       responses:
         "200":
           description: Page and blocks
+  /v1/projects/{projectId}/pages/{pageId}/blocks:
+    put:
+      operationId: putPageBlocks
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocks]
+              properties:
+                blocks:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [id, type]
+                    properties:
+                      id:
+                        type: string
+                      type:
+                        type: string
+                      payload:
+                        type: object
+      responses:
+        "200":
+          description: Replaced ordered blocks for the page
+        "400":
+          description: Unknown type or bad payload
+        "404":
+          description: Page not found
   /v1/blocks/{blockId}:
     patch:
       operationId: patchBlock
@@ -235,3 +273,10 @@ components:
         embeddingBaseUrl:
           type: string
           description: Optional. Defaults to baseUrl. The embedding key is the X-Embedding-Key header, not this body.
+        mode:
+          type: string
+          enum: [notes, web]
+          default: web
+          description: >
+            notes = answer from search_notes only, no note writes.
+            web = provider web search, then note ops after the answer.

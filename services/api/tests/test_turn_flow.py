@@ -109,6 +109,7 @@ class TurnFlowTest(unittest.TestCase):
         secret = "sk-test-secret-value-123456"
         project = self.client.post("/v1/projects", json={"title": "Flow test"}).json()
         chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
+        _Provider.bodies.clear()
         with self.client.stream(
             "POST",
             f"/v1/chats/{chat['id']}/turns",
@@ -119,12 +120,14 @@ class TurnFlowTest(unittest.TestCase):
                 "baseUrl": f"http://127.0.0.1:{self.port}/v1",
                 "model": "fake",
                 "pageId": project["rootPageId"],
+                "mode": "web",
             },
         ) as response:
             raw = "".join(response.iter_text())
         self.assertNotIn(secret, raw)
         self.assertIn("Torque is a turning effect.", raw)
         self.assertIn("event: notes", raw)
+        self.assertTrue(any("web_search_options" in body for body in _Provider.bodies))
         page = self.client.get(f"/v1/projects/{project['id']}/pages/{project['rootPageId']}").json()
         texts = [block["payload"].get("text") for block in page["blocks"]]
         self.assertIn("Torque is r cross F.", texts)
@@ -173,13 +176,55 @@ class TurnFlowTest(unittest.TestCase):
                 "baseUrl": f"http://127.0.0.1:{self.port}/v1",
                 "model": "fake",
                 "pageId": project["rootPageId"],
+                "mode": "notes",
             },
         ) as response:
             raw = "".join(response.iter_text())
         self.assertIn("Searching notes", raw)
         self.assertIn("You wrote that inertia resists changes in motion.", raw)
         self.assertTrue(any("Inertia resists a change in motion." in body for body in _Provider.bodies))
+        self.assertNotIn("event: notes", raw)
         self.assertNotIn(secret, raw)
+
+    def test_put_page_blocks_replaces_the_tree(self):
+        from uuid import uuid4
+
+        project = self.client.post("/v1/projects", json={"title": "Notebook"}).json()
+        page_id = project["rootPageId"]
+        heading_id = str(uuid4())
+        para_id = str(uuid4())
+        first = self.client.put(
+            f"/v1/projects/{project['id']}/pages/{page_id}/blocks",
+            json={
+                "blocks": [
+                    {"id": heading_id, "type": "heading", "payload": {"text": "Laws", "level": 1}},
+                    {"id": para_id, "type": "paragraph", "payload": {"text": "F = ma"}},
+                ]
+            },
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        body = first.json()
+        self.assertEqual([row["type"] for row in body], ["heading", "paragraph"])
+        self.assertEqual(body[0]["payload"]["text"], "Laws")
+        again = self.client.put(
+            f"/v1/projects/{project['id']}/pages/{page_id}/blocks",
+            json={
+                "blocks": [
+                    {"id": para_id, "type": "paragraph", "payload": {"text": "F = ma"}},
+                    {
+                        "id": str(uuid4()),
+                        "type": "bulleted_list_item",
+                        "payload": {"text": "Action equals reaction"},
+                    },
+                ]
+            },
+        )
+        self.assertEqual(again.status_code, 200, again.text)
+        page = self.client.get(f"/v1/projects/{project['id']}/pages/{page_id}").json()
+        self.assertEqual(len(page["blocks"]), 2)
+        self.assertEqual(page["blocks"][0]["id"], para_id)
+        self.assertEqual(page["blocks"][0]["version"], 1)
+        self.assertEqual(page["blocks"][1]["type"], "bulleted_list_item")
 
 
 if __name__ == "__main__":

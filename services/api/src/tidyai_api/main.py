@@ -70,11 +70,22 @@ class TurnIn(BaseModel):
     pageId: str | None = None
     embeddingModel: str | None = None
     embeddingBaseUrl: str | None = None
+    mode: Literal["notes", "web"] = "web"
 
 
 class BlockIn(BaseModel):
     version: int
     payload: dict
+
+
+class PageBlockIn(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    type: str = Field(min_length=1, max_length=64)
+    payload: dict = Field(default_factory=dict)
+
+
+class PageBlocksIn(BaseModel):
+    blocks: list[PageBlockIn] = Field(default_factory=list, max_length=500)
 
 
 def sse(event: str, data: str) -> str:
@@ -222,6 +233,30 @@ async def patch_block(block_id: str, body: BlockIn):
     return block_out(saved)
 
 
+@app.put("/v1/projects/{project_id}/pages/{page_id}/blocks")
+async def put_page_blocks(project_id: str, page_id: str, body: PageBlocksIn):
+    cleaned: list[dict] = []
+    seen: set[str] = set()
+    for item in body.blocks:
+        if item.id in seen:
+            raise HTTPException(status_code=400, detail="Duplicate block id.")
+        seen.add(item.id)
+        try:
+            payload = clean_payload(item.type, item.payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        cleaned.append({"id": item.id, "type": item.type, "payload": payload})
+    try:
+        saved = await db.replace_page_blocks(project_id, page_id, cleaned)
+        if saved is not None:
+            await db.sync_project_chunks(project_id)
+    except OperationalError:
+        return db_down()
+    if saved is None:
+        raise HTTPException(status_code=404, detail="Page not found.")
+    return [block_out(row) for row in saved]
+
+
 @app.post("/v1/chats/{chat_id}/turns")
 async def create_turn(
     chat_id: str,
@@ -263,8 +298,21 @@ async def create_turn(
     outline = format_outline(prepared["pages"], prepared["blocks"])
     page_text = format_page(prepared["pageBlocks"])
     messages = study_messages(history, outline=outline, page_text=page_text)
+    mode = body.mode
     if messages and messages[0].get("role") == "system":
-        messages[0] = {**messages[0], "content": messages[0]["content"] + TOOL_HINT}
+        if mode == "notes":
+            messages[0] = {
+                **messages[0],
+                "content": messages[0]["content"]
+                + TOOL_HINT
+                + "\n\nMode: notes. Answer only from the outline, current page, and search_notes. Do not invent outside facts. Do not propose note edits.",
+            }
+        else:
+            messages[0] = {
+                **messages[0],
+                "content": messages[0]["content"]
+                + "\n\nMode: web. Use provider web search when the question needs current or outside facts. The session will update study notes after your answer.",
+            }
     embed = _embedding_config(body, base, provider["api_key"], x_embedding_key)
 
     async def events():
@@ -278,14 +326,12 @@ async def create_turn(
         chunks: list[str] = []
         disconnected = False
         live = messages
-        for round_index in range(3):
-            assembler = ToolAssembler()
-            use_tools = round_index < 2
+        if mode == "web":
             try:
                 async for piece in stream_chat(
                     messages=live,
-                    tools=SEARCH_TOOLS if use_tools else None,
-                    assembler=assembler,
+                    tools=None,
+                    web_search=True,
                     **provider,
                 ):
                     if await request.is_disconnected():
@@ -297,17 +343,46 @@ async def create_turn(
                 text = "".join(chunks)
                 if text:
                     await _save_quiet(chat_id, text)
-                yield sse("error", json.dumps({"code": exc.code, "message": exc.message}))
+                message = exc.message
+                if exc.code == "upstream":
+                    message = (
+                        f"{exc.message} Web mode needs a host that supports provider web search "
+                        "(OpenAI search-capable Chat Completions, or Gemini). Or switch to Notes mode."
+                    )
+                yield sse("error", json.dumps({"code": exc.code, "message": message}))
                 yield sse("done", "{}")
                 return
-            if disconnected:
-                break
-            calls = [call for call in assembler.calls() if call.name == "search_notes"][:1]
-            if not calls or not use_tools:
-                break
-            yield sse("status", "Searching notes")
-            results = [await _run_search(prepared["projectId"], call.arguments, embed) for call in calls]
-            live = append_tool_results(live, calls, results)
+        else:
+            for round_index in range(3):
+                assembler = ToolAssembler()
+                use_tools = round_index < 2
+                try:
+                    async for piece in stream_chat(
+                        messages=live,
+                        tools=SEARCH_TOOLS if use_tools else None,
+                        assembler=assembler,
+                        **provider,
+                    ):
+                        if await request.is_disconnected():
+                            disconnected = True
+                            break
+                        chunks.append(piece)
+                        yield sse("text", piece)
+                except ProviderError as exc:
+                    text = "".join(chunks)
+                    if text:
+                        await _save_quiet(chat_id, text)
+                    yield sse("error", json.dumps({"code": exc.code, "message": exc.message}))
+                    yield sse("done", "{}")
+                    return
+                if disconnected:
+                    break
+                calls = [call for call in assembler.calls() if call.name == "search_notes"][:1]
+                if not calls or not use_tools:
+                    break
+                yield sse("status", "Searching notes")
+                results = [await _run_search(prepared["projectId"], call.arguments, embed) for call in calls]
+                live = append_tool_results(live, calls, results)
 
         text = "".join(chunks)
         if disconnected:
@@ -328,6 +403,11 @@ async def create_turn(
                 "error",
                 json.dumps({"code": "empty", "message": "Provider returned an empty answer."}),
             )
+            yield sse("done", "{}")
+            return
+
+        # B1: notes mode is pure Q&A — never mutate the block tree.
+        if mode == "notes":
             yield sse("done", "{}")
             return
 

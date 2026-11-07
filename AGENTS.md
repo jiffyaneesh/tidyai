@@ -65,7 +65,9 @@ KISS ceilings already chosen. Do not cross them in a drive-by:
 
 ## UI
 
-The shell is three panes: sidebar 260px (rail 56px), chat column capped at 768px, notes 360px. Under 960px the notes pane is an overlay. Its Close control must stay reachable. Do not cover it with the pane.
+The shell is three panes: sidebar 260px (rail 56px), chat column capped at 768px, notes default 360px and drag-resizable (280–640). Under 960px the notes pane is an overlay. Its Close control must stay reachable. Do not cover it with the pane. Notes use BlockNote as the writing surface with debounced autosave; Postgres typed blocks stay the source of truth ([docs/research/10-notes-editor-engine.md](docs/research/10-notes-editor-engine.md)). Do not store the page as a markdown file.
+
+Header toggle **Notes | Web** ([docs/research/11-study-modes.md](docs/research/11-study-modes.md)): **web** (default) uses provider web search then note ops; **notes** is pure Q&A via `search_notes` only — no note writes.
 
 - Use the tokens in `apps/web/src/styles.css`. One accent, `--accent`. Do not add a second brand color.
 - Body text on `--bg` and `--surface` stays at least 4.5:1. Do not lighten `--muted`.
