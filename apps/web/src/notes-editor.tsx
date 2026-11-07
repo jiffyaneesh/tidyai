@@ -149,9 +149,16 @@ export function NotesEditor({
         </p>
       </div>
       {error && (
-        <p className="px-3 pb-2 text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div className="flex items-center justify-between gap-2 px-3 pb-2" role="alert">
+          <p className="text-sm text-destructive">{error}</p>
+          <button
+            type="button"
+            className="shrink-0 text-[0.79rem] font-medium text-foreground underline-offset-2 hover:underline"
+            onClick={() => void flush()}
+          >
+            Retry
+          </button>
+        </div>
       )}
       <div
         className="min-h-0 flex-1 overflow-y-auto bg-background px-1 pb-4"

@@ -201,28 +201,36 @@ export function App() {
 
   async function refreshNotes() {
     if (!projectId) return;
-    const rows = await listPages(projectId);
-    setPages(rows);
-    const target = pageId || rows[0]?.id || "";
-    if (!pageId && target) setPageId(target);
-    if (!target) return;
-    if (notesDirty) {
-      setNotesReloadPending(true);
-      return;
+    try {
+      const rows = await listPages(projectId);
+      setPages(rows);
+      const target = pageId || rows[0]?.id || "";
+      if (!pageId && target) setPageId(target);
+      if (!target) return;
+      if (notesDirty) {
+        setNotesReloadPending(true);
+        return;
+      }
+      const page = await getPage(projectId, target);
+      setBlocks(page.blocks ?? []);
+      setNotesRevision((value) => value + 1);
+      setNotesReloadPending(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not refresh notes.");
     }
-    const page = await getPage(projectId, target);
-    setBlocks(page.blocks ?? []);
-    setNotesRevision((value) => value + 1);
-    setNotesReloadPending(false);
   }
 
   async function reloadNotesFromServer() {
     if (!projectId || !pageId) return;
-    const page = await getPage(projectId, pageId);
-    setBlocks(page.blocks ?? []);
-    setNotesDirty(false);
-    setNotesReloadPending(false);
-    setNotesRevision((value) => value + 1);
+    try {
+      const page = await getPage(projectId, pageId);
+      setBlocks(page.blocks ?? []);
+      setNotesDirty(false);
+      setNotesReloadPending(false);
+      setNotesRevision((value) => value + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reload notes.");
+    }
   }
 
   async function reloadHealth() {
@@ -319,6 +327,7 @@ export function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     let live = "";
+    let sawError = false;
     try {
       await streamTurn(
         activeChat,
@@ -341,6 +350,7 @@ export function App() {
           } else if (event.event === "status") {
             setStatus(event.data);
           } else if (event.event === "error") {
+            sawError = true;
             try {
               const parsed = JSON.parse(event.data) as { message?: string };
               setError(parsed.message || "The provider call failed.");
@@ -358,9 +368,10 @@ export function App() {
       setStreaming("");
       setMessagesByChat((current) => ({ ...current, [activeChat]: saved }));
       setChatsByProject((current) => ({ ...current, [projectId]: sessions }));
+      if (!sawError) setStatus("");
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setStatus("Stopped.");
+        setStatus(live ? "Stopped. Partial answer kept when the server saved it." : "Stopped.");
       } else {
         setError(err instanceof Error ? err.message : "The turn failed.");
       }
