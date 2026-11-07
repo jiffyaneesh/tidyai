@@ -81,6 +81,17 @@ export function patchBlock(block: Block, payload: Record<string, unknown>): Prom
   });
 }
 
+export function putPageBlocks(
+  projectId: string,
+  pageId: string,
+  blocks: { id: string; type: string; payload: Record<string, unknown> }[],
+): Promise<Block[]> {
+  return request(`/v1/projects/${projectId}/pages/${pageId}/blocks`, {
+    method: "PUT",
+    body: JSON.stringify({ blocks }),
+  });
+}
+
 export type TurnEvent = { event: string; data: string };
 
 export async function streamTurn(
@@ -94,6 +105,7 @@ export async function streamTurn(
     pageId: string;
     embeddingModel: string;
     embeddingBaseUrl: string;
+    mode: "notes" | "web";
   },
   apiKey: string,
   onEvent: (event: TurnEvent) => void,
@@ -115,6 +127,7 @@ export async function streamTurn(
       pageId: body.pageId,
       embeddingModel: body.embeddingModel || null,
       embeddingBaseUrl: body.embeddingBaseUrl || null,
+      mode: body.mode,
     }),
   });
   if (!response.ok || !response.body) throw new Error(await readError(response));

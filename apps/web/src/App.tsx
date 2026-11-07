@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
 import {
@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileText,
   Moon,
   PanelLeft,
   Plus,
@@ -33,6 +34,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { pageShell } from "@/lib/page-shell";
+import { clampNotesWidth, loadNotesWidth, saveNotesWidth } from "@/lib/notes-width";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import {
@@ -44,7 +46,7 @@ import {
   listMessages,
   listPages,
   listProjects,
-  patchBlock,
+  putPageBlocks,
   streamTurn,
   type Block,
   type Chat,
@@ -52,7 +54,8 @@ import {
   type NotePage,
   type Project,
 } from "./api";
-import { BlockView } from "./notes";
+import { loadStudyMode, saveStudyMode, type StudyMode } from "./lib/study-mode";
+import { NotesEditor } from "./notes-editor";
 import { Settings } from "./Settings";
 import { loadActiveId, loadProfiles, saveActiveId, saveProfiles, type Profile } from "./vault";
 
@@ -60,6 +63,8 @@ export function App() {
   const { theme, toggle } = useTheme();
   const [sideOpen, setSideOpen] = useState(() => window.matchMedia("(min-width: 960px)").matches);
   const [notesOpen, setNotesOpen] = useState(() => window.matchMedia("(min-width: 960px)").matches);
+  const [notesWidth, setNotesWidth] = useState(() => loadNotesWidth());
+  const [notesResizing, setNotesResizing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [subjectOpen, setSubjectOpen] = useState(false);
   const [subjectName, setSubjectName] = useState("");
@@ -74,6 +79,9 @@ export function App() {
   const [pages, setPages] = useState<NotePage[]>([]);
   const [pageId, setPageId] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [notesRevision, setNotesRevision] = useState(0);
+  const [notesDirty, setNotesDirty] = useState(false);
+  const [notesReloadPending, setNotesReloadPending] = useState(false);
   const [messagesByChat, setMessagesByChat] = useState<Record<string, Message[]>>({});
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState("");
@@ -82,6 +90,7 @@ export function App() {
   const [error, setError] = useState("");
   const [dbDown, setDbDown] = useState(false);
   const [copiedId, setCopiedId] = useState("");
+  const [studyMode, setStudyMode] = useState<StudyMode>("web");
   const abortRef = useRef<AbortController | null>(null);
 
   const active = profiles.find((profile) => profile.id === activeId) ?? null;
@@ -90,6 +99,7 @@ export function App() {
   const session = chats.find((item) => item.id === chatId) ?? null;
   const messages = chatId ? messagesByChat[chatId] ?? [] : [];
   const query = sessionQuery.trim().toLowerCase();
+  const activePage = pages.find((page) => page.id === pageId) ?? null;
 
   useEffect(() => {
     void health()
@@ -141,6 +151,10 @@ export function App() {
   }, [projectId]);
 
   useEffect(() => {
+    setStudyMode(loadStudyMode(chatId));
+  }, [chatId]);
+
+  useEffect(() => {
     if (!chatId) return;
     let cancel = false;
     const requested = chatId;
@@ -162,7 +176,11 @@ export function App() {
     let cancel = false;
     void getPage(projectId, pageId)
       .then((page) => {
-        if (!cancel) setBlocks(page.blocks ?? []);
+        if (cancel) return;
+        setBlocks(page.blocks ?? []);
+        setNotesDirty(false);
+        setNotesReloadPending(false);
+        setNotesRevision((value) => value + 1);
       })
       .catch(() => {
         if (!cancel) setBlocks([]);
@@ -172,6 +190,15 @@ export function App() {
     };
   }, [projectId, pageId]);
 
+  useEffect(() => {
+    function onOpenPage(event: Event) {
+      const pageIdNext = (event as CustomEvent<{ pageId?: string }>).detail?.pageId;
+      if (pageIdNext) setPageId(pageIdNext);
+    }
+    window.addEventListener("tidyai:open-page", onOpenPage);
+    return () => window.removeEventListener("tidyai:open-page", onOpenPage);
+  }, []);
+
   async function refreshNotes() {
     if (!projectId) return;
     const rows = await listPages(projectId);
@@ -179,8 +206,23 @@ export function App() {
     const target = pageId || rows[0]?.id || "";
     if (!pageId && target) setPageId(target);
     if (!target) return;
+    if (notesDirty) {
+      setNotesReloadPending(true);
+      return;
+    }
     const page = await getPage(projectId, target);
     setBlocks(page.blocks ?? []);
+    setNotesRevision((value) => value + 1);
+    setNotesReloadPending(false);
+  }
+
+  async function reloadNotesFromServer() {
+    if (!projectId || !pageId) return;
+    const page = await getPage(projectId, pageId);
+    setBlocks(page.blocks ?? []);
+    setNotesDirty(false);
+    setNotesReloadPending(false);
+    setNotesRevision((value) => value + 1);
   }
 
   async function reloadHealth() {
@@ -215,7 +257,13 @@ export function App() {
       setProjectId(nextProjectId);
     }
     setChatId(nextChatId);
+    setStudyMode(loadStudyMode(nextChatId));
     if (window.matchMedia("(max-width: 959px)").matches) setSideOpen(false);
+  }
+
+  function changeStudyMode(mode: StudyMode) {
+    setStudyMode(mode);
+    saveStudyMode(chatId, mode);
   }
 
   async function onCreateProject() {
@@ -283,6 +331,7 @@ export function App() {
           pageId,
           embeddingModel: active.embeddingModel,
           embeddingBaseUrl: active.embeddingBaseUrl,
+          mode: studyMode,
         },
         active.apiKey,
         (event) => {
@@ -328,11 +377,6 @@ export function App() {
     }
   }
 
-  async function onSaveBlock(block: Block, payload: Record<string, unknown>) {
-    const saved = await patchBlock(block, payload);
-    setBlocks((current) => current.map((item) => (item.id === saved.id ? saved : item)));
-  }
-
   async function copyMessage(message: Message) {
     try {
       await navigator.clipboard.writeText(message.content);
@@ -348,6 +392,38 @@ export function App() {
     setActiveId(id);
     saveActiveId(id);
     void saveProfiles(next);
+  }
+
+  function onNotesResizeStart(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!notesOpen) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    setNotesResizing(true);
+    const startX = event.clientX;
+    const startWidth = notesWidth;
+
+    function onMove(move: PointerEvent) {
+      const next = clampNotesWidth(startWidth + (startX - move.clientX));
+      setNotesWidth(next);
+    }
+
+    function onUp(up: PointerEvent) {
+      handle.releasePointerCapture(up.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+      setNotesResizing(false);
+      setNotesWidth((current) => {
+        const width = clampNotesWidth(current);
+        saveNotesWidth(width);
+        return width;
+      });
+    }
+
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
   }
 
   return (
@@ -526,6 +602,30 @@ export function App() {
             {active && <span className="tag-blue hidden md:inline">{active.label}</span>}
             {status && <Badge variant="secondary" className="hidden sm:inline-flex">{status}</Badge>}
             <div className="flex shrink-0 items-center gap-1">
+            <div className="mr-1 flex rounded-lg border border-border/50 p-0.5" role="group" aria-label="Study mode">
+              <Button
+                type="button"
+                size="sm"
+                variant={studyMode === "notes" ? "secondary" : "ghost"}
+                className="h-8 px-2.5"
+                aria-pressed={studyMode === "notes"}
+                disabled={!chatId}
+                onClick={() => changeStudyMode("notes")}
+              >
+                Notes
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={studyMode === "web" ? "secondary" : "ghost"}
+                className="h-8 px-2.5"
+                aria-pressed={studyMode === "web"}
+                disabled={!chatId}
+                onClick={() => changeStudyMode("web")}
+              >
+                Web
+              </Button>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm" disabled={!projectId}>
@@ -642,7 +742,9 @@ export function App() {
                     <section className={pageShell.section}>
                       <h2 className="text-base font-medium tracking-tight">Ask something about {project?.title}</h2>
                       <p className={cn(pageShell.subtitle, "mt-1")}>
-                        The current page is already in the prompt. The model can search older notes when it needs them.
+                        {studyMode === "notes"
+                          ? "Notes mode answers from this subject only. It will not edit the notebook."
+                          : "Web mode can search outside facts, then update the notebook after the answer."}
                       </p>
                     </section>
                   )}
@@ -729,43 +831,92 @@ export function App() {
               id="notes-pane"
               aria-label="Notes"
               aria-hidden={!notesOpen}
+              style={notesOpen ? { width: notesWidth } : undefined}
               className={cn(
-                "flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background/80 backdrop-blur-md transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-                "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:shadow-soft",
-                notesOpen ? "w-[min(22.5rem,100%)] opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
+                "relative flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background",
+                "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:max-w-[min(100%,40rem)] max-[960px]:shadow-soft",
+                !notesResizing && "transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+                notesOpen ? "opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
               )}
             >
-              <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
-                <h2 className="truncate text-sm font-medium">{project?.title ?? "Notes"}</h2>
+              {notesOpen && (
+                <button
+                  type="button"
+                  aria-label="Resize notes pane"
+                  className={cn(
+                    "absolute inset-y-0 left-0 z-10 flex w-3 -translate-x-1/2 cursor-col-resize items-center justify-center border-0 bg-transparent p-0",
+                    "before:block before:h-10 before:w-1 before:rounded-full before:bg-border before:transition-colors",
+                    "hover:before:bg-accent focus-visible:before:bg-accent",
+                    notesResizing && "before:bg-accent",
+                  )}
+                  onPointerDown={onNotesResizeStart}
+                />
+              )}
+              <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <BookOpen className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate text-[0.7rem] font-medium uppercase tracking-wide">Notes</span>
+                  </div>
+                  <h2 className="truncate text-sm font-medium tracking-tight">{activePage?.title ?? project?.title ?? "Notes"}</h2>
+                </div>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setNotesOpen(false)}>
                   Close
                 </Button>
               </div>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="flex flex-col gap-3 p-3">
-                  <ul className="flex flex-col gap-1">
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="shrink-0 border-b border-border/40 px-2 py-2">
+                  <p className="mb-1.5 px-1.5 text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">Pages</p>
+                  <ul className="flex max-h-36 flex-col gap-0.5 overflow-y-auto">
                     {pages.map((page) => (
                       <li key={page.id} style={{ paddingLeft: page.depth * 12 }}>
                         <button
                           type="button"
                           aria-current={page.id === pageId ? "true" : undefined}
                           className={cn(
-                            "w-full cursor-pointer truncate rounded-md px-2 py-1 text-left text-sm",
-                            page.id === pageId ? "bg-accent-soft text-sidebar-accent-foreground" : "hover:bg-muted",
+                            "flex w-full cursor-pointer items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
+                            page.id === pageId ? "bg-accent-soft text-sidebar-accent-foreground" : "hover:bg-muted/70",
                           )}
                           onClick={() => setPageId(page.id)}
                         >
-                          {page.title}
+                          <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <span className="truncate">{page.title}</span>
                         </button>
                       </li>
                     ))}
+                    {!pages.length && <li className={cn(pageShell.subtitle, "px-2")}>No pages yet.</li>}
                   </ul>
-                  {blocks.map((block) => (
-                    <BlockView key={block.id} block={block} onSave={onSaveBlock} onOpenPage={setPageId} />
-                  ))}
-                  {!blocks.length && <p className={pageShell.subtitle}>Notes from this chat land here.</p>}
                 </div>
-              </ScrollArea>
+                {notesReloadPending && (
+                  <div className="flex items-center justify-between gap-2 border-b border-border/40 bg-accent-soft/40 px-3 py-2 text-sm">
+                    <span>Session updated this page.</span>
+                    <Button type="button" size="sm" variant="outline" onClick={() => void reloadNotesFromServer()}>
+                      Reload
+                    </Button>
+                  </div>
+                )}
+                {projectId && pageId ? (
+                  <NotesEditor
+                    key={`${pageId}:${notesRevision}`}
+                    projectId={projectId}
+                    pageId={pageId}
+                    blocks={blocks}
+                    revision={notesRevision}
+                    onDirty={() => setNotesDirty(true)}
+                    onSaved={(saved) => {
+                      setBlocks(saved);
+                      setNotesDirty(false);
+                    }}
+                    onSave={(pid, pidPage, next) => putPageBlocks(pid, pidPage, next)}
+                  />
+                ) : (
+                  <div className="px-4 py-8 text-center">
+                    <FileText className="mx-auto mb-2 size-5 text-muted-foreground" aria-hidden />
+                    <p className="text-sm font-medium">Pick a page</p>
+                    <p className={cn(pageShell.subtitle, "mt-1")}>Notes open in a live notebook editor.</p>
+                  </div>
+                )}
+              </div>
             </aside>
           </div>
         </div>

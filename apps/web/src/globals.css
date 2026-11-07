@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* BlockNote shadcn UI utilities. */
+@source "../node_modules/@blocknote/shadcn";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -220,4 +223,52 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Notes engine: map BlockNote to Warm Slate tokens (follows :root / .dark). */
+#notes-pane .bn-tidyai.bn-root {
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-editor-background: var(--background);
+  --bn-colors-menu-text: var(--popover-foreground);
+  --bn-colors-menu-background: var(--popover);
+  --bn-colors-tooltip-text: var(--foreground);
+  --bn-colors-tooltip-background: var(--muted);
+  --bn-colors-hovered-text: var(--foreground);
+  --bn-colors-hovered-background: var(--muted);
+  --bn-colors-selected-text: var(--accent-foreground);
+  --bn-colors-selected-background: var(--accent);
+  --bn-colors-disabled-text: var(--muted-foreground);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: var(--border);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--muted-foreground);
+  --bn-font-family: var(--font-sans);
+  --bn-border-radius: var(--radius);
+}
+
+#notes-pane .bn-tidyai .bn-editor {
+  background-color: transparent;
+  color: var(--foreground);
+  border-radius: 0;
+  padding-inline: 0.75rem;
+}
+
+#notes-pane .bn-tidyai [data-content-type="quote"] blockquote {
+  color: var(--muted-foreground);
+  border-left-color: var(--accent);
+}
+
+#notes-pane .bn-tidyai [data-content-type="divider"] hr {
+  border-top-color: var(--border);
+}
+
+#notes-pane .bn-tidyai [data-content-type="table"] th,
+#notes-pane .bn-tidyai [data-content-type="table"] td {
+  border-color: var(--border);
+}
+
+#notes-pane .bn-tidyai .bn-equation {
+  background: var(--muted);
+  border-color: var(--border);
+  color: var(--foreground);
 }
