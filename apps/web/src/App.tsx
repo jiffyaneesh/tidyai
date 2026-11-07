@@ -313,14 +313,14 @@ export function App() {
         )}
         <aside
           className={cn(
-            "flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+            "flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
             sideOpen ? "w-64" : "w-14",
             "max-[959px]:fixed max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-40 max-[959px]:shadow-lg",
             !sideOpen && "max-[959px]:hidden",
           )}
           aria-label="Subjects"
         >
-          <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-2">
+          <div className="flex h-14 items-center gap-2 border-b border-sidebar-border/60 px-3">
             <IconTip label={sideOpen ? "Hide sidebar" : "Show sidebar"}>
               <Button
                 type="button"
@@ -337,7 +337,7 @@ export function App() {
             {sideOpen && <span className="text-sm font-medium tracking-tight">tidyai</span>}
           </div>
           <ScrollArea className="min-h-0 flex-1" id="project-nav">
-            <div className="flex flex-col gap-1 p-2">
+            <div className="flex flex-col gap-1 p-3">
               {projects.map((item) => (
                 <button
                   key={item.id}
@@ -345,7 +345,7 @@ export function App() {
                   aria-current={item.id === projectId ? "page" : undefined}
                   aria-label={item.title}
                   className={cn(
-                    "cursor-pointer truncate rounded-lg px-2 py-2 text-left text-sm",
+                    "cursor-pointer truncate rounded-xl px-3 py-2.5 text-left text-sm transition-colors duration-200",
                     item.id === projectId
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "hover:bg-sidebar-accent/60",
@@ -361,7 +361,7 @@ export function App() {
               )}
             </div>
           </ScrollArea>
-          <div className="flex flex-col gap-2 border-t border-sidebar-border p-2">
+          <div className="flex flex-col gap-3 border-t border-sidebar-border/60 p-3">
             {sideOpen && (
               <>
                 <Input
@@ -377,7 +377,7 @@ export function App() {
                         type="button"
                         aria-current={chat.id === chatId ? "true" : undefined}
                         className={cn(
-                          "w-full cursor-pointer truncate rounded-lg px-2 py-1.5 text-left text-sm",
+                          "w-full cursor-pointer truncate rounded-xl px-3 py-2 text-left text-sm transition-colors duration-200",
                           chat.id === chatId ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
                         )}
                         onClick={() => setChatId(chat.id)}
@@ -414,7 +414,7 @@ export function App() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/40 bg-background/70 px-4 backdrop-blur-md">
             <Button
               type="button"
               variant="ghost"
@@ -509,7 +509,7 @@ export function App() {
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="relative flex min-h-0 flex-1">
               <ScrollArea className="min-h-0 min-w-0 flex-1">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 lg:p-6">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
                   {dbDown && (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm" role="alert">
                       <span>Database is not running. Start it with docker compose up -d.</span>
@@ -556,8 +556,8 @@ export function App() {
                     <article
                       key={message.id}
                       className={cn(
-                        "rounded-xl border px-4 py-3 shadow-sm",
-                        message.role === "user" ? "ml-8 border-transparent bg-secondary" : "mr-8 bg-card/80",
+                        "rounded-2xl border px-5 py-4 shadow-subtle",
+                        message.role === "user" ? "ml-10 border-transparent bg-secondary/80" : "mr-10 border-border/40 bg-card/80",
                       )}
                     >
                       <div className="mb-1 flex items-center justify-between gap-2">
@@ -579,7 +579,7 @@ export function App() {
                     </article>
                   ))}
                   {streaming && (
-                    <article className="mr-8 rounded-xl border bg-card/80 px-4 py-3 shadow-sm" aria-live="polite">
+                    <article className="mr-10 rounded-2xl border border-border/40 bg-card/80 px-5 py-4 shadow-subtle" aria-live="polite">
                       <span className="mb-1 block text-xs font-medium text-muted-foreground">Session</span>
                       <div className="text-sm leading-6">
                         <Streamdown plugins={{ math }} isAnimating>
@@ -593,10 +593,11 @@ export function App() {
               <aside
                 id="notes-pane"
                 aria-label="Notes"
+                aria-hidden={!notesOpen}
                 className={cn(
-                  "flex w-[min(360px,100%)] shrink-0 flex-col border-l bg-card/75 backdrop-blur",
-                  "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:shadow-lg",
-                  !notesOpen && "hidden",
+                  "flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background/80 backdrop-blur-md transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+                  "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:shadow-soft",
+                  notesOpen ? "w-[min(22.5rem,100%)] opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
                 )}
               >
                 <div className="flex h-14 items-center justify-between gap-2 border-b px-3">
@@ -633,13 +634,13 @@ export function App() {
               </aside>
             </div>
             <form
-              className="relative z-10 border-t bg-background/90 p-3 backdrop-blur sm:p-4"
+              className="relative z-10 px-4 pb-5 pt-2 sm:px-6"
               onSubmit={(event) => {
                 event.preventDefault();
                 void onSend();
               }}
             >
-              <div className="mx-auto flex max-w-3xl items-end gap-2">
+              <div className="mx-auto max-w-3xl rounded-[1.35rem] border border-border/50 bg-card/90 p-2 shadow-soft transition-[box-shadow,border-color] duration-200 focus-within:border-ring/30 focus-within:shadow-glow">
                 <label className="sr-only" htmlFor="draft">
                   Message
                 </label>
@@ -649,6 +650,7 @@ export function App() {
                   placeholder={active ? `Study ${project?.title ?? "a subject"}` : "Add a provider in Settings"}
                   value={draft}
                   disabled={!active || busy || !chatId}
+                  className="min-h-14 border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
@@ -657,17 +659,19 @@ export function App() {
                     }
                   }}
                 />
-                {busy ? (
-                  <Button type="button" variant="destructive" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
-                    <Square /> Stop
-                  </Button>
-                ) : (
-                  <Button type="submit" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
-                    <Send /> Send
-                  </Button>
-                )}
+                <div className="flex items-center justify-between gap-3 px-2 pb-1">
+                  <p className="text-xs text-muted-foreground">Enter sends. Shift+Enter adds a line.</p>
+                  {busy ? (
+                    <Button type="button" variant="destructive" size="sm" className="rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
+                      <Square /> Stop
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="sm" className="rounded-full px-4" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
+                      <Send /> Send
+                    </Button>
+                  )}
+                </div>
               </div>
-              <p className="mx-auto mt-2 max-w-3xl text-xs text-muted-foreground">Enter sends. Shift+Enter adds a line.</p>
             </form>
           </div>
         </div>

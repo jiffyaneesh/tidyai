@@ -2,9 +2,11 @@ import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { profileError, type Profile, type Protocol } from "./vault";
+import { Check } from "lucide-react";
+import { profileError, type Profile } from "./vault";
 
 const EMPTY: Profile = {
   id: "",
@@ -95,14 +97,23 @@ export function Settings({
             <Input value={draft.label} onChange={(event) => setDraft({ ...draft, label: event.target.value })} />
           </Field>
           <Field label="Protocol">
-            <select
-              className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={draft.protocol}
-              onChange={(event) => setDraft({ ...draft, protocol: event.target.value as Protocol })}
-            >
-              <option value="openai_chat">OpenAI-compatible</option>
-              <option value="gemini">Gemini</option>
-            </select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal">
+                  {draft.protocol === "gemini" ? "Gemini" : "OpenAI-compatible"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                <DropdownMenuItem onSelect={() => setDraft({ ...draft, protocol: "openai_chat" })}>
+                  {draft.protocol === "openai_chat" && <Check />}
+                  OpenAI-compatible
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDraft({ ...draft, protocol: "gemini" })}>
+                  {draft.protocol === "gemini" && <Check />}
+                  Gemini
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </Field>
           <Field label="Base URL">
             <Input
