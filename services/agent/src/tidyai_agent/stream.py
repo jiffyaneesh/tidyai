@@ -241,6 +241,7 @@ async def stream_chat(
     tools: list[dict] | None = None,
     assembler: ToolAssembler | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    web_search: bool = False,
 ) -> AsyncIterator[str]:
     if protocol not in PROTOCOLS:
         raise ProviderError("bad_protocol", "Protocol must be openai_chat or gemini.")
@@ -252,11 +253,18 @@ async def stream_chat(
         url = _openai_url(base)
         headers = {"Authorization": f"Bearer {api_key.strip()}", "Content-Type": "application/json"}
         body = {"model": model_id, "messages": messages, "stream": True}
+        # A1: Chat Completions search path. Hosts that lack it return 4xx → ProviderError.
+        if web_search:
+            body["web_search_options"] = {"search_context_size": "medium"}
     else:
         url = _gemini_url(base, model_id)
         headers = {"x-goog-api-key": api_key.strip(), "Content-Type": "application/json"}
         body = _gemini_body(messages)
-    _apply_tools(protocol, body, tools)
+        if web_search:
+            # Gemini Google Search grounding (native tool, not a functionDeclaration).
+            body["tools"] = [{"google_search": {}}]
+    if not (web_search and protocol == "gemini"):
+        _apply_tools(protocol, body, tools)
 
     timeout = httpx.Timeout(10.0, read=120.0)
     sent = 0

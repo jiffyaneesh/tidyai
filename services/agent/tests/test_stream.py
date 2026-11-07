@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import httpx
@@ -120,6 +121,56 @@ class StreamTests(unittest.TestCase):
             _run(collect())
         self.assertIn("redirected", caught.exception.message.lower())
         self.assertNotIn("AIzaSySomethingLongEnough", caught.exception.message)
+
+    def test_openai_web_search_adds_options(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content.decode())
+            body = 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+        async def collect():
+            parts = []
+            async for part in stream_chat(
+                protocol="openai_chat",
+                base_url="https://example.com/v1",
+                api_key="sk-test-secret-value-123456",
+                model="demo",
+                messages=[{"role": "user", "content": "Hi"}],
+                web_search=True,
+                transport=httpx.MockTransport(handler),
+            ):
+                parts.append(part)
+            return "".join(parts)
+
+        self.assertEqual(_run(collect()), "ok")
+        self.assertEqual(seen["body"]["web_search_options"], {"search_context_size": "medium"})
+
+    def test_gemini_web_search_adds_google_search_tool(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content.decode())
+            body = 'data: {"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}\n\n'
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+        async def collect():
+            parts = []
+            async for part in stream_chat(
+                protocol="gemini",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="AIzaSySomethingLongEnough",
+                model="gemini-test",
+                messages=[{"role": "user", "content": "Hi"}],
+                web_search=True,
+                transport=httpx.MockTransport(handler),
+            ):
+                parts.append(part)
+            return "".join(parts)
+
+        self.assertEqual(_run(collect()), "ok")
+        self.assertEqual(seen["body"]["tools"], [{"google_search": {}}])
 
 
 if __name__ == "__main__":
