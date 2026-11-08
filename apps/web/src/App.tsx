@@ -33,8 +33,9 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { pageShell } from "@/lib/page-shell";
+import { chatBubble, pageShell } from "@/lib/page-shell";
 import { clampNotesWidth, loadNotesWidth, saveNotesWidth } from "@/lib/notes-width";
+import { subjectDot } from "@/lib/subject-dot";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import {
@@ -468,21 +469,21 @@ export function App() {
         {sideOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-30 bg-foreground/25 min-[960px]:hidden"
+            className="fixed inset-0 z-30 bg-foreground/20 min-[960px]:hidden"
             aria-label="Hide sidebar"
             onClick={() => setSideOpen(false)}
           />
         )}
         <aside
           className={cn(
-            "flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-            sideOpen ? "w-64" : "w-14",
+            "flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+            sideOpen ? "w-[245px]" : "w-14",
             "max-[959px]:fixed max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-40 max-[959px]:shadow-lg",
             !sideOpen && "max-[959px]:hidden",
           )}
           aria-label="Subjects"
         >
-          <div className="flex h-14 items-center gap-2 border-b border-sidebar-border/60 px-3">
+          <div className="flex h-[52px] items-center gap-2 px-3 pt-2">
             <IconTip label={sideOpen ? "Hide sidebar" : "Show sidebar"}>
               <Button
                 type="button"
@@ -496,18 +497,36 @@ export function App() {
                 <PanelLeft />
               </Button>
             </IconTip>
-            {sideOpen && <span className="text-sm font-medium tracking-tight">tidyai</span>}
+            {sideOpen && (
+              <span className="flex items-center gap-2 text-[0.875rem] font-bold tracking-[-0.05em]">
+                <span className="wordmark-dot" aria-hidden />
+                tidyai
+              </span>
+            )}
           </div>
           <ScrollArea className="min-h-0 flex-1" id="project-nav">
-            <div className="flex flex-col gap-1 p-3">
+            <div className="flex flex-col gap-0.5 px-3 pb-3 pt-1">
               {sideOpen && (
-                <Input
-                  value={sessionQuery}
-                  placeholder="Filter subjects and chats"
-                  aria-label="Filter subjects and chats"
-                  className="mb-2"
-                  onChange={(event) => setSessionQuery(event.target.value)}
-                />
+                <>
+                  <div className="sidebar-kicker mb-2 flex items-center justify-between px-2">
+                    <span>Your subjects</span>
+                    <button
+                      type="button"
+                      className="text-[0.7rem] leading-none text-muted-foreground hover:text-foreground"
+                      aria-label="New subject"
+                      onClick={() => setSubjectOpen(true)}
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  <Input
+                    value={sessionQuery}
+                    placeholder="Filter"
+                    aria-label="Filter subjects and chats"
+                    className="mb-2 h-8 rounded-lg border-sidebar-border bg-sidebar-accent/40 text-[0.7rem]"
+                    onChange={(event) => setSessionQuery(event.target.value)}
+                  />
+                </>
               )}
               {projects.map((item) => {
                 const open = expandedIds.includes(item.id);
@@ -515,15 +534,54 @@ export function App() {
                   (chat) => !query || chat.title.toLowerCase().includes(query) || item.title.toLowerCase().includes(query),
                 );
                 if (query && !item.title.toLowerCase().includes(query) && !subjectChats.length) return null;
+                const dot = subjectDot(item.title);
                 return (
                   <div key={item.id} className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-0.5">
+                    <div
+                      className={cn(
+                        "flex items-center gap-0.5 rounded-lg",
+                        item.id === projectId && "bg-sidebar-accent text-sidebar-accent-foreground",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        aria-current={item.id === projectId ? "page" : undefined}
+                        aria-label={item.title}
+                        className={cn(
+                          "flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 py-2.5 text-left transition-colors duration-200",
+                          item.id === projectId
+                            ? "text-sidebar-accent-foreground"
+                            : "text-sidebar-foreground hover:bg-sidebar-accent/70",
+                          !sideOpen && "justify-center px-0",
+                        )}
+                        onClick={() => {
+                          selectProject(item.id);
+                          if (!open) toggleSubject(item.id);
+                          if (!chatsByProject[item.id]) {
+                            void listChats(item.id).then((rows) =>
+                              setChatsByProject((current) => ({ ...current, [item.id]: rows })),
+                            );
+                          }
+                        }}
+                      >
+                        <span className="size-2 shrink-0 rounded-full" style={{ background: dot }} aria-hidden />
+                        {sideOpen ? (
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[0.7rem] font-medium text-foreground">{item.title}</span>
+                            <span className="mt-0.5 block text-[0.56rem] text-muted-foreground">
+                              {subjectChats.length || (chatsByProject[item.id] ?? []).length} chats
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="sr-only">{item.title}</span>
+                        )}
+                      </button>
                       {sideOpen && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="size-7 shrink-0"
+                          className="size-7 shrink-0 text-muted-foreground"
                           aria-label={open ? `Collapse ${item.title}` : `Expand ${item.title}`}
                           aria-expanded={open}
                           onClick={() => {
@@ -535,44 +593,22 @@ export function App() {
                             }
                           }}
                         >
-                          {open ? <ChevronDown /> : <ChevronRight />}
+                          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                         </Button>
                       )}
-                      <button
-                        type="button"
-                        aria-current={item.id === projectId ? "page" : undefined}
-                        aria-label={item.title}
-                        className={cn(
-                          "min-w-0 flex-1 cursor-pointer truncate rounded-xl px-2.5 py-2 text-left text-sm transition-colors duration-200",
-                          item.id === projectId
-                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                            : "hover:bg-sidebar-accent/60",
-                          !sideOpen && "px-0 text-center",
-                        )}
-                        onClick={() => {
-                          selectProject(item.id);
-                          if (!chatsByProject[item.id]) {
-                            void listChats(item.id).then((rows) =>
-                              setChatsByProject((current) => ({ ...current, [item.id]: rows })),
-                            );
-                          }
-                        }}
-                      >
-                        {sideOpen ? item.title : item.title.slice(0, 1)}
-                      </button>
                     </div>
                     {sideOpen && open && (
-                      <ul className="ml-4 flex flex-col gap-0.5 border-l border-sidebar-border/70 pl-2">
+                      <ul className="ml-4 flex flex-col gap-0.5 border-l border-sidebar-border pl-2">
                         {subjectChats.map((chat) => (
                           <li key={chat.id}>
                             <button
                               type="button"
                               aria-current={chat.id === chatId ? "true" : undefined}
                               className={cn(
-                                "w-full cursor-pointer truncate rounded-lg px-2.5 py-1.5 text-left text-[0.79rem] transition-colors duration-200",
+                                "w-full cursor-pointer truncate rounded-md px-2.5 py-1.5 text-left text-[0.7rem] transition-colors duration-200",
                                 chat.id === chatId
-                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                  : "text-sidebar-foreground/90 hover:bg-sidebar-accent/50",
+                                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
                               )}
                               onClick={() => selectChat(item.id, chat.id)}
                             >
@@ -581,18 +617,18 @@ export function App() {
                           </li>
                         ))}
                         {!subjectChats.length && (
-                          <li className={cn(pageShell.subtitle, "px-2.5 py-1")}>No chats yet.</li>
+                          <li className={cn(pageShell.subtitle, "px-2.5 py-1 text-[0.65rem]")}>No chats yet.</li>
                         )}
                         <li>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-full justify-start px-2.5 text-[0.79rem]"
+                            className="h-7 w-full justify-start px-2.5 text-[0.7rem] font-medium text-muted-foreground"
                             disabled={busy}
                             onClick={() => void onCreateChat(item.id)}
                           >
-                            <Plus /> New chat
+                            <Plus className="size-3.5" /> New chat
                           </Button>
                         </li>
                       </ul>
@@ -600,18 +636,18 @@ export function App() {
                   </div>
                 );
               })}
-              {!projects.length && sideOpen && <p className={pageShell.subtitle}>No subjects yet.</p>}
+              {!projects.length && sideOpen && <p className={cn(pageShell.subtitle, "px-2")}>No subjects yet.</p>}
             </div>
           </ScrollArea>
-          <div className="flex flex-col gap-2 border-t border-sidebar-border/60 p-3">
+          <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border px-3 py-3">
             <IconTip label="New subject">
-              <Button type="button" variant="secondary" size={sideOpen ? "sm" : "icon"} aria-label="New subject" onClick={() => setSubjectOpen(true)}>
+              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} className="w-full justify-start text-[0.7rem]" aria-label="New subject" onClick={() => setSubjectOpen(true)}>
                 <Plus />
-                {sideOpen && "Subject"}
+                {sideOpen && "New subject"}
               </Button>
             </IconTip>
             <IconTip label="Settings">
-              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} className="w-full justify-start text-[0.7rem]" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
                 {sideOpen && "Settings"}
               </Button>
@@ -620,7 +656,7 @@ export function App() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/40 bg-background/70 px-4 backdrop-blur-md">
+          <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background px-5">
             <Button
               type="button"
               variant="ghost"
@@ -631,24 +667,33 @@ export function App() {
             >
               <PanelLeft />
             </Button>
-            <div className="min-w-0 flex-1">
-              <h1 className={cn(pageShell.title, "truncate text-base")}>{project?.title ?? "tidyai"}</h1>
-              <p className={cn(pageShell.subtitle, "truncate")}>{session?.title ?? "Pick a chat or start one."}</p>
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-[0.7rem] text-muted-foreground">
+              <span className="truncate">
+                Subject / <span className="font-medium text-foreground">{project?.title ?? "tidyai"}</span>
+              </span>
+              {session && (
+                <>
+                  <span aria-hidden>/</span>
+                  <span className="truncate">{session.title}</span>
+                </>
+              )}
+              {!busy && !status && <span className="live-dot hidden sm:inline-block" aria-hidden />}
+              {!busy && !status && <span className="hidden sm:inline">Synced</span>}
             </div>
-            {active && <span className="tag-blue hidden md:inline">{active.label}</span>}
-            {status && <Badge variant="secondary" className="hidden sm:inline-flex">{status}</Badge>}
+            {active && <span className="tag-purple hidden md:inline">{active.label}</span>}
+            {status && <Badge variant="secondary" className="hidden sm:inline-flex text-[0.65rem]">{status}</Badge>}
             {(studyStats.searches > 0 || studyStats.hits > 0 || studyStats.noteSkips > 0) && (
-              <span className="hidden text-[0.68rem] text-muted-foreground lg:inline" title="Local study counters">
+              <span className="hidden text-[0.62rem] text-muted-foreground lg:inline" title="Local study counters">
                 search {studyStats.searches} · hits {studyStats.hits} · skip {studyStats.noteSkips}
               </span>
             )}
             <div className="flex shrink-0 items-center gap-1">
-            <div className="mr-1 flex rounded-lg border border-border/50 p-0.5" role="group" aria-label="Study mode">
+            <div className="mr-1 flex rounded-lg border border-border p-0.5" role="group" aria-label="Study mode">
               <Button
                 type="button"
                 size="sm"
                 variant={studyMode === "notes" ? "secondary" : "ghost"}
-                className="h-8 px-2.5"
+                className="h-7 px-2.5 text-[0.7rem]"
                 aria-pressed={studyMode === "notes"}
                 disabled={!chatId}
                 onClick={() => changeStudyMode("notes")}
@@ -659,7 +704,7 @@ export function App() {
                 type="button"
                 size="sm"
                 variant={studyMode === "web" ? "secondary" : "ghost"}
-                className="h-8 px-2.5"
+                className="h-7 px-2.5 text-[0.7rem]"
                 aria-pressed={studyMode === "web"}
                 disabled={!chatId}
                 onClick={() => changeStudyMode("web")}
@@ -744,9 +789,16 @@ export function App() {
           <div className="relative flex min-h-0 flex-1">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ScrollArea className="min-h-0 flex-1">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-8">
+                  {project && chatId && (
+                    <div className="mb-2 flex items-center gap-2 text-[0.75rem] font-bold tracking-[-0.02em]">
+                      <span className="size-2 rounded-full" style={{ background: subjectDot(project.title) }} aria-hidden />
+                      {project.title}
+                      {session && <small className="ml-auto font-normal text-muted-foreground">{session.title}</small>}
+                    </div>
+                  )}
                   {dbDown && (
-                    <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm" role="alert">
+                    <div className="flex items-center justify-between gap-3 rounded-[11px] border border-warning/40 bg-warning/10 px-4 py-3 text-[0.8125rem]" role="alert">
                       <span>Database is not running. Start it with docker compose up -d.</span>
                       <Button type="button" size="sm" variant="outline" onClick={() => void reloadHealth()}>
                         Retry
@@ -754,7 +806,7 @@ export function App() {
                     </div>
                   )}
                   {error && (
-                    <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+                    <div className="flex items-center justify-between gap-3 rounded-[11px] border border-destructive/30 bg-destructive/10 px-4 py-3 text-[0.8125rem] text-destructive" role="alert">
                       <span>{error}</span>
                       <Button type="button" size="sm" variant="outline" onClick={() => setError("")}>
                         Dismiss
@@ -764,8 +816,8 @@ export function App() {
                   {!project && !dbDown && (
                     <section className={pageShell.section}>
                       <h2 className={pageShell.title}>Start a subject</h2>
-                      <p className={cn(pageShell.subtitle, "mt-1")}>A subject holds sessions and the notes those sessions write.</p>
-                      <Button type="button" className="mt-4" onClick={() => setSubjectOpen(true)}>
+                      <p className={cn(pageShell.subtitle, "mt-2")}>A subject holds sessions and the notes those sessions write.</p>
+                      <Button type="button" className="mt-5" onClick={() => setSubjectOpen(true)}>
                         <Plus /> New subject
                       </Button>
                     </section>
@@ -773,16 +825,16 @@ export function App() {
                   {project && !chatId && (
                     <section className={pageShell.section}>
                       <h2 className={pageShell.title}>No chat yet</h2>
-                      <p className={cn(pageShell.subtitle, "mt-1")}>A chat is one study conversation. Notes stay on the subject.</p>
-                      <Button type="button" className="mt-4" onClick={() => void onCreateChat()}>
+                      <p className={cn(pageShell.subtitle, "mt-2")}>A chat is one study conversation. Notes stay on the subject.</p>
+                      <Button type="button" className="mt-5" onClick={() => void onCreateChat()}>
                         <Plus /> New chat
                       </Button>
                     </section>
                   )}
                   {chatId && !messages.length && !streaming && (
                     <section className={pageShell.section}>
-                      <h2 className="text-base font-medium tracking-tight">Ask something about {project?.title}</h2>
-                      <p className={cn(pageShell.subtitle, "mt-1")}>
+                      <h2 className={pageShell.title}>Ask something about {project?.title}</h2>
+                      <p className={cn(pageShell.subtitle, "mt-2")}>
                         {studyMode === "notes"
                           ? "Notes mode answers from this subject only. It will not edit the notebook."
                           : "Web mode can search outside facts, then update the notebook after the answer."}
@@ -792,33 +844,35 @@ export function App() {
                   {messages.map((message) => (
                     <article
                       key={message.id}
-                      className={cn(
-                        "rounded-2xl border px-5 py-4 shadow-subtle",
-                        message.role === "user" ? "ml-10 border-transparent bg-secondary/80" : "mr-10 border-border/40 bg-card/80",
-                      )}
+                      className={cn(message.role === "user" ? chatBubble.user : chatBubble.assistant)}
                     >
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">{message.role === "user" ? "You" : "Session"}</span>
-                        {message.role === "assistant" && (
-                          <Button type="button" variant="ghost" size="sm" onClick={() => void copyMessage(message)}>
-                            {copiedId === message.id ? <Check /> : <Copy />}
-                            {copiedId === message.id ? "Copied" : "Copy"}
-                          </Button>
-                        )}
-                      </div>
+                      {message.role === "assistant" && (
+                        <span className="absolute left-0 top-1 text-accent" aria-hidden>
+                          ✳
+                        </span>
+                      )}
                       {message.role === "assistant" ? (
-                        <div className="text-sm leading-6">
+                        <div className="leading-relaxed [&_em]:text-accent [&_i]:text-accent">
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="sr-only">Session</span>
+                            <Button type="button" variant="ghost" size="sm" className="ml-auto h-7 px-2 text-[0.65rem] text-accent" onClick={() => void copyMessage(message)}>
+                              {copiedId === message.id ? <Check /> : <Copy />}
+                              {copiedId === message.id ? "Copied" : "Copy"}
+                            </Button>
+                          </div>
                           <Streamdown plugins={{ math }}>{message.content}</Streamdown>
                         </div>
                       ) : (
-                        <p className="whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                       )}
                     </article>
                   ))}
                   {streaming && (
-                    <article className="mr-10 rounded-2xl border border-border/40 bg-card/80 px-5 py-4 shadow-subtle" aria-live="polite">
-                      <span className="mb-1 block text-xs font-medium text-muted-foreground">Session</span>
-                      <div className="text-sm leading-6">
+                    <article className={chatBubble.assistant} aria-live="polite">
+                      <span className="absolute left-0 top-1 text-accent" aria-hidden>
+                        ✳
+                      </span>
+                      <div className="leading-relaxed [&_em]:text-accent [&_i]:text-accent">
                         <Streamdown plugins={{ math }} isAnimating>
                           {streaming}
                         </Streamdown>
@@ -826,12 +880,12 @@ export function App() {
                     </article>
                   )}
                   {!!citations.length && (
-                    <aside className="mr-10 rounded-xl border border-border/30 bg-secondary/40 px-4 py-3" aria-label="Note citations">
-                      <p className="mb-2 text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">From notes</p>
-                      <ul className="flex flex-col gap-1.5">
+                    <aside className="mr-auto max-w-[min(100%,28rem)] rounded-lg border border-border bg-accent-soft/50 px-3 py-2.5" aria-label="Note citations">
+                      <p className="sidebar-kicker mb-1.5">From notes</p>
+                      <ul className="flex flex-col gap-1">
                         {citations.slice(0, 6).map((hit, index) => (
-                          <li key={`${hit.sourceId ?? "hit"}-${index}`} className="truncate text-[0.79rem] text-muted-foreground">
-                            <span className="font-medium text-foreground/80">{hit.sourceType ?? "note"}</span>
+                          <li key={`${hit.sourceId ?? "hit"}-${index}`} className="truncate text-[0.7rem] text-muted-foreground">
+                            <span className="font-medium text-accent">{hit.sourceType ?? "note"}</span>
                             {hit.snippet ? ` — ${hit.snippet}` : ""}
                           </li>
                         ))}
@@ -841,23 +895,23 @@ export function App() {
                 </div>
               </ScrollArea>
               <form
-                className="relative z-10 px-4 pb-5 pt-2 sm:px-6"
+                className="relative z-10 border-t border-border bg-background px-6 py-4"
                 onSubmit={(event) => {
                   event.preventDefault();
                   void onSend();
                 }}
               >
-                <div className="mx-auto max-w-3xl rounded-[1.35rem] border border-border/50 bg-card/90 p-2 shadow-soft transition-[box-shadow,border-color] duration-200 focus-within:border-ring/30 focus-within:shadow-glow">
+                <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-lg border border-input bg-card px-3 py-2.5 transition-[border-color,box-shadow] duration-200 focus-within:border-ring focus-within:shadow-subtle">
                   <label className="sr-only" htmlFor="draft">
                     Message
                   </label>
                   <Textarea
                     id="draft"
-                    rows={2}
-                    placeholder={active ? `Study ${project?.title ?? "a subject"}` : "Add a provider in Settings"}
+                    rows={1}
+                    placeholder={active ? "Ask a follow-up" : "Add a provider in Settings"}
                     value={draft}
                     disabled={!active || busy || !chatId}
-                    className="min-h-14 border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
+                    className="min-h-9 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 text-[0.75rem] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
@@ -866,19 +920,17 @@ export function App() {
                       }
                     }}
                   />
-                  <div className="flex items-center justify-between gap-3 px-2 pb-1">
-                    <p className="text-xs text-muted-foreground">Enter sends. Shift+Enter adds a line.</p>
-                    {busy ? (
-                      <Button type="button" variant="destructive" size="sm" className="rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
-                        <Square /> Stop
-                      </Button>
-                    ) : (
-                      <Button type="submit" size="sm" className="rounded-full px-4" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
-                        <Send /> Send
-                      </Button>
-                    )}
-                  </div>
+                  {busy ? (
+                    <Button type="button" variant="destructive" size="icon" className="size-8 shrink-0" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
+                      <Square />
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="icon" className="size-8 shrink-0" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
+                      <Send />
+                    </Button>
+                  )}
                 </div>
+                <p className="mx-auto mt-2 max-w-3xl text-[0.62rem] text-muted-foreground">Enter sends · Shift+Enter newline</p>
               </form>
             </div>
             <aside
@@ -887,7 +939,7 @@ export function App() {
               aria-hidden={!notesOpen}
               style={notesOpen ? { width: notesWidth } : undefined}
               className={cn(
-                "relative flex shrink-0 flex-col overflow-hidden border-l border-border/30 bg-background",
+                "relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-note-paper",
                 "max-[960px]:absolute max-[960px]:inset-y-0 max-[960px]:right-0 max-[960px]:z-20 max-[960px]:max-w-[min(100%,40rem)] max-[960px]:shadow-soft",
                 !notesResizing && "transition-[width,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
                 notesOpen ? "opacity-100" : "pointer-events-none w-0 border-transparent opacity-0",
@@ -906,21 +958,20 @@ export function App() {
                   onPointerDown={onNotesResizeStart}
                 />
               )}
-              <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3">
+              <div className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                    <BookOpen className="size-3.5 shrink-0" aria-hidden />
-                    <span className="truncate text-[0.7rem] font-medium uppercase tracking-wide">Notes</span>
-                  </div>
-                  <h2 className="truncate text-sm font-medium tracking-tight">{activePage?.title ?? project?.title ?? "Notes"}</h2>
+                  <p className="sidebar-kicker">Editable note</p>
+                  <h2 className="truncate font-serif text-[1.05rem] font-normal tracking-[-0.03em]">
+                    {activePage?.title ?? project?.title ?? "Notes"}
+                  </h2>
                 </div>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setNotesOpen(false)}>
+                <Button type="button" variant="ghost" size="sm" className="text-[0.7rem]" onClick={() => setNotesOpen(false)}>
                   Close
                 </Button>
               </div>
               <div className="flex min-h-0 flex-1 flex-col">
-                <div className="shrink-0 border-b border-border/40 px-2 py-2">
-                  <p className="mb-1.5 px-1.5 text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">Pages</p>
+                <div className="shrink-0 border-b border-border px-2 py-2">
+                  <p className="sidebar-kicker mb-1.5 px-2">Pages</p>
                   <ul className="flex max-h-36 flex-col gap-0.5 overflow-y-auto">
                     {pages.map((page) => (
                       <li key={page.id} style={{ paddingLeft: page.depth * 12 }}>
@@ -928,12 +979,12 @@ export function App() {
                           type="button"
                           aria-current={page.id === pageId ? "true" : undefined}
                           className={cn(
-                            "flex w-full cursor-pointer items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors",
-                            page.id === pageId ? "bg-accent-soft text-sidebar-accent-foreground" : "hover:bg-muted/70",
+                            "flex w-full cursor-pointer items-center gap-2 truncate rounded-md px-2 py-1.5 text-left text-[0.75rem] transition-colors",
+                            page.id === pageId ? "bg-accent-soft text-foreground" : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                           )}
                           onClick={() => setPageId(page.id)}
                         >
-                          <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <FileText className="size-3.5 shrink-0" aria-hidden />
                           <span className="truncate">{page.title}</span>
                         </button>
                       </li>

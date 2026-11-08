@@ -148,11 +148,11 @@ export function NotesEditor({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col bg-background", className)}>
-      <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2">
-        <p className="text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">Page</p>
+      <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3">
+        <p className="sidebar-kicker">Page</p>
         <p
           className={cn(
-            "text-[0.68rem] uppercase tracking-wide",
+            "text-[0.62rem] font-semibold uppercase tracking-[0.1em]",
             saveState === "error" ? "text-destructive" : "text-muted-foreground",
           )}
           aria-live="polite"

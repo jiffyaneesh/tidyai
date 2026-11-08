@@ -69,7 +69,7 @@ The shell is three panes: sidebar 260px (rail 56px), chat column capped at 768px
 
 Header toggle **Notes | Web** ([docs/research/11-study-modes.md](docs/research/11-study-modes.md)): **web** (default) uses provider web search then note ops; **notes** is pure Q&A via `search_notes` only — no note writes.
 
-- Use the tokens in `apps/web/src/styles.css`. One accent, `--accent`. Do not add a second brand color.
+- Use the tokens in `apps/web/src/globals.css` (paper / ink / lilac from the workspace preview). One accent, `--accent` (lilac). Do not add a second brand color. UI type is Plus Jakarta Sans; note headings use Source Serif 4.
 - Body text on `--bg` and `--surface` stays at least 4.5:1. Do not lighten `--muted`.
 - Panel open is 250ms, close is 200ms. `prefers-reduced-motion: reduce` disables those transitions. Do not animate each streamed token.
 - Chat markdown goes through Streamdown. Notes go through `BlockView`. Do not render model HTML. Do not add `dangerouslySetInnerHTML` for model output. KaTeX stays `trust: false`.
