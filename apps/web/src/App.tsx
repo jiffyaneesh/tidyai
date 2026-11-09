@@ -33,11 +33,14 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { chatBubble, pageShell } from "@/lib/page-shell";
+import { composerBlockReason, friendlyError } from "@/lib/errors";
 import { clampNotesWidth, loadNotesWidth, saveNotesWidth } from "@/lib/notes-width";
 import { subjectDot } from "@/lib/subject-dot";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
+import { toast } from "sonner";
 import {
   createChat,
   createProject,
@@ -91,15 +94,23 @@ export function App() {
   const [streaming, setStreaming] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
   const [dbDown, setDbDown] = useState(false);
   const [copiedId, setCopiedId] = useState("");
   const [studyMode, setStudyMode] = useState<StudyMode>("web");
   const [citations, setCitations] = useState<Citation[]>([]);
   const [studyStats, setStudyStats] = useState<StudyStats>(() => loadStudyStats());
   const abortRef = useRef<AbortController | null>(null);
+  const dbDownRef = useRef(false);
 
   const active = profiles.find((profile) => profile.id === activeId) ?? null;
+  const sendBlock = composerBlockReason({
+    dbDown,
+    hasProvider: Boolean(active),
+    hasChat: Boolean(chatId),
+    busy,
+    draftEmpty: !draft.trim(),
+  });
+  const canSend = !sendBlock;
   const project = projects.find((item) => item.id === projectId) ?? null;
   const chats = chatsByProject[projectId] ?? [];
   const session = chats.find((item) => item.id === chatId) ?? null;
@@ -109,15 +120,34 @@ export function App() {
 
   useEffect(() => {
     void health()
-      .then((body) => setDbDown(body.db !== "ok"))
-      .catch(() => setDbDown(true));
+      .then((body) => {
+        const down = body.db !== "ok";
+        setDbDown(down);
+        if (down && !dbDownRef.current) {
+          toast.error("Database is not running.", {
+            description: "Start it with docker compose up -d, then Retry.",
+          });
+        }
+        dbDownRef.current = down;
+      })
+      .catch(() => {
+        setDbDown(true);
+        if (!dbDownRef.current) {
+          toast.error(friendlyError("Failed to fetch"));
+        }
+        dbDownRef.current = true;
+      });
     void loadProfiles()
       .then((saved) => {
         setProfiles(saved);
         const stored = loadActiveId();
         setActiveId(saved.some((profile) => profile.id === stored) ? stored : saved[0]?.id ?? "");
       })
-      .catch(() => setError("Could not open the key vault in this browser."));
+      .catch(() => {
+        toast.error("Could not open the key vault in this browser.", {
+          description: "Provider keys stay local. Check private mode or storage permissions.",
+        });
+      });
   }, []);
 
   useEffect(() => {
@@ -127,7 +157,7 @@ export function App() {
         setProjects(rows);
         setProjectId((current) => current || rows[0]?.id || "");
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load subjects."));
+      .catch((err: unknown) => toast.error(friendlyError(err, "Could not load subjects.")));
   }, [dbDown]);
 
   useEffect(() => {
@@ -144,13 +174,17 @@ export function App() {
         });
       })
       .catch(() => {
-        if (!cancel) setError("Could not load chats for this subject.");
+        if (!cancel) toast.error("Could not load chats for this subject.");
       });
-    void listPages(projectId).then((rows) => {
-      if (cancel) return;
-      setPages(rows);
-      setPageId((current) => current || rows[0]?.id || "");
-    });
+    void listPages(projectId)
+      .then((rows) => {
+        if (cancel) return;
+        setPages(rows);
+        setPageId((current) => current || rows[0]?.id || "");
+      })
+      .catch(() => {
+        if (!cancel) toast.error("Could not load note pages.");
+      });
     return () => {
       cancel = true;
     };
@@ -222,7 +256,7 @@ export function App() {
       setNotesRevision((value) => value + 1);
       setNotesReloadPending(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not refresh notes.");
+      toast.error(friendlyError(err, "Could not refresh notes."));
     }
   }
 
@@ -234,18 +268,27 @@ export function App() {
       setNotesDirty(false);
       setNotesReloadPending(false);
       setNotesRevision((value) => value + 1);
+      toast.success("Notes reloaded.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not reload notes.");
+      toast.error(friendlyError(err, "Could not reload notes."));
     }
   }
 
   async function reloadHealth() {
     try {
       const body = await health();
-      setDbDown(body.db !== "ok");
-      if (body.db === "ok") setError("");
+      const down = body.db !== "ok";
+      setDbDown(down);
+      dbDownRef.current = down;
+      if (down) {
+        toast.error("Database is still down.", { description: "Run docker compose up -d." });
+      } else {
+        toast.success("Database is back.");
+      }
     } catch {
       setDbDown(true);
+      dbDownRef.current = true;
+      toast.error(friendlyError("Failed to fetch"));
     }
   }
 
@@ -282,7 +325,14 @@ export function App() {
 
   async function onCreateProject() {
     const title = subjectName.trim();
-    if (!title) return;
+    if (!title) {
+      toast.message("Name the subject first.");
+      return;
+    }
+    if (dbDown) {
+      toast.error("Database is down. Start Postgres, then retry.");
+      return;
+    }
     try {
       const created = await createProject(title);
       setProjects((current) => [...current, created]);
@@ -295,14 +345,18 @@ export function App() {
       expandSubject(created.id);
       setSubjectName("");
       setSubjectOpen(false);
-      setError("");
+      toast.success(`Subject “${created.title}” ready.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create that subject.");
+      toast.error(friendlyError(err, "Could not create that subject."));
     }
   }
 
   async function onCreateChat(forProjectId = projectId) {
     if (!forProjectId || busy) return;
+    if (dbDown) {
+      toast.error("Database is down. Start Postgres, then retry.");
+      return;
+    }
     try {
       const created = await createChat(forProjectId);
       setChatsByProject((current) => ({
@@ -311,17 +365,27 @@ export function App() {
       }));
       setMessagesByChat((current) => ({ ...current, [created.id]: [] }));
       selectChat(forProjectId, created.id);
-      setError("");
+      toast.success("New chat started.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create that chat.");
+      toast.error(friendlyError(err, "Could not create that chat."));
     }
   }
 
   async function onSend() {
     const text = draft.trim();
-    if (!text || !chatId || !active || busy) return;
+    const block = composerBlockReason({
+      dbDown,
+      hasProvider: Boolean(active),
+      hasChat: Boolean(chatId),
+      busy,
+      draftEmpty: !text,
+    });
+    if (block) {
+      toast.message(block);
+      return;
+    }
+    if (!active || !chatId) return;
     setDraft("");
-    setError("");
     setStatus("");
     setStreaming("");
     setCitations([]);
@@ -375,9 +439,9 @@ export function App() {
             sawError = true;
             try {
               const parsed = JSON.parse(event.data) as { message?: string };
-              setError(parsed.message || "The provider call failed.");
+              toast.error(friendlyError(parsed.message || "The provider call failed."));
             } catch {
-              setError("The provider call failed.");
+              toast.error("The provider call failed.");
             }
           } else if (event.event === "notes") {
             sawNotes = true;
@@ -398,8 +462,9 @@ export function App() {
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setStatus(live ? "Stopped. Partial answer kept when the server saved it." : "Stopped.");
+        toast.message(live ? "Stopped. Partial answer kept if the server saved it." : "Stopped.");
       } else {
-        setError(err instanceof Error ? err.message : "The turn failed.");
+        toast.error(friendlyError(err, "The turn failed."));
       }
       try {
         const saved = await listMessages(activeChat);
@@ -418,9 +483,10 @@ export function App() {
     try {
       await navigator.clipboard.writeText(message.content);
       setCopiedId(message.id);
+      toast.success("Copied.");
       window.setTimeout(() => setCopiedId((current) => (current === message.id ? "" : current)), 1500);
     } catch {
-      setError("Could not copy that answer.");
+      toast.error("Could not copy that answer.");
     }
   }
 
@@ -465,6 +531,7 @@ export function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
+      <Toaster theme={theme} />
       <div className="flex h-full min-h-0 bg-background text-foreground">
         {sideOpen && (
           <button
@@ -640,8 +707,16 @@ export function App() {
             </div>
           </ScrollArea>
           <div className="mt-auto flex flex-col gap-1 border-t border-sidebar-border px-3 py-3">
-            <IconTip label="New subject">
-              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} className="w-full justify-start text-[0.7rem]" aria-label="New subject" onClick={() => setSubjectOpen(true)}>
+            <IconTip label={dbDown ? "Database is down" : "New subject"}>
+              <Button
+                type="button"
+                variant="ghost"
+                size={sideOpen ? "sm" : "icon"}
+                className="w-full justify-start text-[0.7rem]"
+                aria-label="New subject"
+                disabled={dbDown}
+                onClick={() => setSubjectOpen(true)}
+              >
                 <Plus />
                 {sideOpen && "New subject"}
               </Button>
@@ -729,7 +804,7 @@ export function App() {
                 ))}
                 {!chats.length && <DropdownMenuItem disabled>No chats yet</DropdownMenuItem>}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={busy} onSelect={() => void onCreateChat()}>
+                <DropdownMenuItem disabled={busy || dbDown || !projectId} onSelect={() => void onCreateChat()}>
                   New chat
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -805,14 +880,6 @@ export function App() {
                       </Button>
                     </div>
                   )}
-                  {error && (
-                    <div className="flex items-center justify-between gap-3 rounded-[11px] border border-destructive/30 bg-destructive/10 px-4 py-3 text-[0.8125rem] text-destructive" role="alert">
-                      <span>{error}</span>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setError("")}>
-                        Dismiss
-                      </Button>
-                    </div>
-                  )}
                   {!project && !dbDown && (
                     <section className={pageShell.section}>
                       <h2 className={pageShell.title}>Start a subject</h2>
@@ -822,11 +889,11 @@ export function App() {
                       </Button>
                     </section>
                   )}
-                  {project && !chatId && (
+                  {project && !chatId && !dbDown && (
                     <section className={pageShell.section}>
                       <h2 className={pageShell.title}>No chat yet</h2>
                       <p className={cn(pageShell.subtitle, "mt-2")}>A chat is one study conversation. Notes stay on the subject.</p>
-                      <Button type="button" className="mt-5" onClick={() => void onCreateChat()}>
+                      <Button type="button" className="mt-5" disabled={busy} onClick={() => void onCreateChat()}>
                         <Plus /> New chat
                       </Button>
                     </section>
@@ -901,22 +968,39 @@ export function App() {
                   void onSend();
                 }}
               >
-                <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-lg border border-input bg-card px-3 py-2.5 transition-[border-color,box-shadow] duration-200 focus-within:border-ring focus-within:shadow-subtle">
+                <div
+                  className={cn(
+                    "mx-auto flex max-w-3xl items-end gap-2 rounded-lg border bg-card px-3 py-2.5 transition-[border-color,box-shadow] duration-200",
+                    canSend || busy
+                      ? "border-input focus-within:border-ring focus-within:shadow-subtle"
+                      : "border-border opacity-90",
+                  )}
+                >
                   <label className="sr-only" htmlFor="draft">
                     Message
                   </label>
                   <Textarea
                     id="draft"
                     rows={1}
-                    placeholder={active ? "Ask a follow-up" : "Add a provider in Settings"}
+                    placeholder={
+                      dbDown
+                        ? "Database is down…"
+                        : !active
+                          ? "Add a provider in Settings"
+                          : !chatId
+                            ? "Open or create a chat first"
+                            : "Ask a follow-up"
+                    }
                     value={draft}
-                    disabled={!active || busy || !chatId}
+                    disabled={dbDown || !active || busy || !chatId}
+                    aria-invalid={Boolean(sendBlock && draft.trim())}
                     className="min-h-9 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 text-[0.75rem] text-foreground shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
-                        void onSend();
+                        if (canSend) void onSend();
+                        else if (sendBlock) toast.message(sendBlock);
                       }
                     }}
                   />
@@ -925,12 +1009,16 @@ export function App() {
                       <Square />
                     </Button>
                   ) : (
-                    <Button type="submit" size="icon" className="size-8 shrink-0" disabled={!active || !chatId || !draft.trim()} aria-label="Send">
-                      <Send />
-                    </Button>
+                    <IconTip label={sendBlock ?? "Send"}>
+                      <Button type="submit" size="icon" className="size-8 shrink-0" disabled={!canSend} aria-label="Send">
+                        <Send />
+                      </Button>
+                    </IconTip>
                   )}
                 </div>
-                <p className="mx-auto mt-2 max-w-3xl text-[0.62rem] text-muted-foreground">Enter sends · Shift+Enter newline</p>
+                <p className="mx-auto mt-2 max-w-3xl text-[0.62rem] text-muted-foreground">
+                  {sendBlock && !busy ? sendBlock : "Enter sends · Shift+Enter newline"}
+                </p>
               </form>
             </div>
             <aside
@@ -1052,7 +1140,7 @@ export function App() {
                 <Button type="button" variant="outline" onClick={() => setSubjectOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={!subjectName.trim()}>
+                <Button type="submit" disabled={!subjectName.trim() || dbDown}>
                   Create subject
                 </Button>
               </div>
@@ -1071,7 +1159,9 @@ export function App() {
 function IconTip({ label, children }: { label: string; children: ReactElement }) {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{children}</span>
+      </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   );
