@@ -21,6 +21,7 @@ For the **as-built** system map (processes, tech stack, function-level flows, ce
 | [09-notes-pane-ui.md](09-notes-pane-ui.md) | Notes pane resize; TipTap rejection later overturned |
 | [10-notes-editor-engine.md](10-notes-editor-engine.md) | BlockNote notes engine; Postgres blocks stay SoT; autosave |
 | [11-study-modes.md](11-study-modes.md) | Notes vs Web; A1 provider web search; B1 notes = pure Q&A |
+| [12-fault-ux.md](12-fault-ux.md) | Prevent invalid actions; sticky vs toast; Sonner |
 
 ## Confidence legend
 
