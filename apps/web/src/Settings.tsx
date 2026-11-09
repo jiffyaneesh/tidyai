@@ -6,6 +6,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import { PROVIDER_PRESETS, presetById } from "./lib/provider-presets";
 import { profileError, type Profile } from "./vault";
 
@@ -98,6 +99,7 @@ export function Settings({
     const problem = profileError(draft);
     if (problem) {
       setError(problem);
+      toast.error(problem);
       return;
     }
     const id = draft.id || crypto.randomUUID();
@@ -110,6 +112,7 @@ export function Settings({
     setCustomModel(false);
     setAdvanced(false);
     setError("");
+    toast.success(`Saved “${draft.label.trim() || "provider"}”.`);
   }
 
   const editing = Boolean(draft.label || draft.apiKey || draft.id || draft.model !== EMPTY.model);

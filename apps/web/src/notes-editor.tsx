@@ -3,7 +3,9 @@ import { useCreateBlockNote, useEditorChange } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
+import { toast } from "sonner";
 import { blocksEqual, fromBlockNote, toBlockNote, type TidyaiBlock } from "@/lib/block-mapper";
+import { friendlyError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
 import { notesSchema } from "./notes-schema";
@@ -92,8 +94,10 @@ export function NotesEditor({
       setSaveState("saved");
       onSaved(saved);
     } catch (err) {
+      const message = friendlyError(err, "Could not save notes.");
       setSaveState("error");
-      setError(err instanceof Error ? err.message : "Could not save notes.");
+      setError(message);
+      toast.error(message, { description: "Your edits are still in the editor. Click Retry." });
     }
   }
 
