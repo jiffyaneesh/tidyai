@@ -22,6 +22,7 @@ For the **as-built** system map (processes, tech stack, function-level flows, ce
 | [10-notes-editor-engine.md](10-notes-editor-engine.md) | BlockNote notes engine; Postgres blocks stay SoT; autosave |
 | [11-study-modes.md](11-study-modes.md) | Notes vs Web; A1 provider web search; B1 notes = pure Q&A |
 | [12-fault-ux.md](12-fault-ux.md) | Prevent invalid actions; sticky vs toast; Sonner |
+| [13-workspace-polish.md](13-workspace-polish.md) | Layout persist/resize; chat pin + accessible reorder; rename |
 
 ## Confidence legend
 
