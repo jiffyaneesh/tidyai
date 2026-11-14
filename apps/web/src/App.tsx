@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
 import {
@@ -34,9 +34,21 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { ResizeHandle } from "@/components/resize-handle";
 import { chatBubble, pageShell } from "@/lib/page-shell";
 import { composerBlockReason, friendlyError } from "@/lib/errors";
-import { clampNotesWidth, loadNotesWidth, saveNotesWidth } from "@/lib/notes-width";
+import {
+  NOTES_WIDTH_DEFAULT,
+  SIDEBAR_RAIL,
+  SIDEBAR_WIDTH_DEFAULT,
+  clampNotesWidth,
+  clampSidebarWidth,
+  loadLayoutPrefs,
+  resetLayoutPrefs,
+  resolvePaneOpen,
+  saveLayoutPrefs,
+  type LayoutPrefs,
+} from "@/lib/layout-prefs";
 import { subjectDot } from "@/lib/subject-dot";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/theme";
@@ -68,10 +80,53 @@ type Citation = { sourceType?: string; sourceId?: string; snippet?: string };
 
 export function App() {
   const { theme, toggle } = useTheme();
-  const [sideOpen, setSideOpen] = useState(() => window.matchMedia("(min-width: 960px)").matches);
-  const [notesOpen, setNotesOpen] = useState(() => window.matchMedia("(min-width: 960px)").matches);
-  const [notesWidth, setNotesWidth] = useState(() => loadNotesWidth());
+  const layoutRef = useRef<LayoutPrefs>(loadLayoutPrefs());
+  const [sideOpen, setSideOpen] = useState(() => resolvePaneOpen(layoutRef.current.sideOpen));
+  const [notesOpen, setNotesOpen] = useState(() => resolvePaneOpen(layoutRef.current.notesOpen));
+  const [sidebarWidth, setSidebarWidth] = useState(() => layoutRef.current.sidebarWidth);
+  const [notesWidth, setNotesWidth] = useState(() => layoutRef.current.notesWidth);
   const [notesResizing, setNotesResizing] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+
+  function persistLayout(patch: Partial<LayoutPrefs>) {
+    const next = { ...layoutRef.current, ...patch };
+    layoutRef.current = next;
+    saveLayoutPrefs(next);
+  }
+
+  function changeSideOpen(open: boolean) {
+    setSideOpen(open);
+    persistLayout({ sideOpen: open });
+  }
+
+  function changeNotesOpen(open: boolean) {
+    setNotesOpen(open);
+    persistLayout({ notesOpen: open });
+  }
+
+  function commitSidebarWidth(width: number) {
+    const next = clampSidebarWidth(width);
+    setSidebarWidth(next);
+    setSidebarResizing(false);
+    persistLayout({ sidebarWidth: next });
+  }
+
+  function commitNotesWidth(width: number) {
+    const next = clampNotesWidth(width);
+    setNotesWidth(next);
+    setNotesResizing(false);
+    persistLayout({ notesWidth: next });
+  }
+
+  function onResetLayout() {
+    const next = resetLayoutPrefs();
+    layoutRef.current = next;
+    setSideOpen(true);
+    setNotesOpen(true);
+    setSidebarWidth(next.sidebarWidth);
+    setNotesWidth(next.notesWidth);
+    toast.success("Layout reset.", { description: "Sidebar and notes returned to defaults." });
+  }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [subjectOpen, setSubjectOpen] = useState(false);
   const [subjectName, setSubjectName] = useState("");
@@ -315,7 +370,7 @@ export function App() {
     }
     setChatId(nextChatId);
     setStudyMode(loadStudyMode(nextChatId));
-    if (window.matchMedia("(max-width: 959px)").matches) setSideOpen(false);
+    if (window.matchMedia("(max-width: 959px)").matches) changeSideOpen(false);
   }
 
   function changeStudyMode(mode: StudyMode) {
@@ -497,38 +552,6 @@ export function App() {
     void saveProfiles(next);
   }
 
-  function onNotesResizeStart(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!notesOpen) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    setNotesResizing(true);
-    const startX = event.clientX;
-    const startWidth = notesWidth;
-
-    function onMove(move: PointerEvent) {
-      const next = clampNotesWidth(startWidth + (startX - move.clientX));
-      setNotesWidth(next);
-    }
-
-    function onUp(up: PointerEvent) {
-      handle.releasePointerCapture(up.pointerId);
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-      handle.removeEventListener("pointercancel", onUp);
-      setNotesResizing(false);
-      setNotesWidth((current) => {
-        const width = clampNotesWidth(current);
-        saveNotesWidth(width);
-        return width;
-      });
-    }
-
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
-    handle.addEventListener("pointercancel", onUp);
-  }
-
   return (
     <TooltipProvider delayDuration={300}>
       <Toaster theme={theme} />
@@ -538,18 +561,32 @@ export function App() {
             type="button"
             className="fixed inset-0 z-30 bg-foreground/20 min-[960px]:hidden"
             aria-label="Hide sidebar"
-            onClick={() => setSideOpen(false)}
+            onClick={() => changeSideOpen(false)}
           />
         )}
         <aside
           className={cn(
-            "flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-            sideOpen ? "w-[245px]" : "w-14",
+            "relative flex h-full shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+            !sidebarResizing && "transition-[width] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
             "max-[959px]:fixed max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:z-40 max-[959px]:shadow-lg",
             !sideOpen && "max-[959px]:hidden",
           )}
+          style={{ width: sideOpen ? sidebarWidth : SIDEBAR_RAIL }}
           aria-label="Subjects"
         >
+          {sideOpen && (
+            <ResizeHandle
+              edge="right"
+              label="Resize sidebar"
+              value={sidebarWidth}
+              onChange={(next) => {
+                setSidebarResizing(true);
+                setSidebarWidth(clampSidebarWidth(next));
+              }}
+              onCommit={commitSidebarWidth}
+              onReset={() => commitSidebarWidth(SIDEBAR_WIDTH_DEFAULT)}
+            />
+          )}
           <div className="flex h-[52px] items-center gap-2 px-3 pt-2">
             <IconTip label={sideOpen ? "Hide sidebar" : "Show sidebar"}>
               <Button
@@ -559,7 +596,7 @@ export function App() {
                 aria-expanded={sideOpen}
                 aria-controls="project-nav"
                 aria-label={sideOpen ? "Hide sidebar" : "Show sidebar"}
-                onClick={() => setSideOpen((open) => !open)}
+                onClick={() => changeSideOpen(!sideOpen)}
               >
                 <PanelLeft />
               </Button>
@@ -738,7 +775,7 @@ export function App() {
               size="icon"
               className="min-[960px]:hidden"
               aria-label="Show sidebar"
-              onClick={() => setSideOpen(true)}
+              onClick={() => changeSideOpen(true)}
             >
               <PanelLeft />
             </Button>
@@ -837,7 +874,7 @@ export function App() {
                 aria-expanded={notesOpen}
                 aria-controls="notes-pane"
                 aria-label={notesOpen ? "Hide notes" : "Show notes"}
-                onClick={() => setNotesOpen((open) => !open)}
+                onClick={() => changeNotesOpen(!notesOpen)}
               >
                 <BookOpen />
               </Button>
@@ -853,11 +890,19 @@ export function App() {
                 {theme === "dark" ? <Sun /> : <Moon />}
               </Button>
             </IconTip>
-            <IconTip label="Settings">
-              <Button type="button" variant="outline" size="icon" aria-label="Open settings" onClick={() => setSettingsOpen(true)}>
-                <SettingsIcon />
-              </Button>
-            </IconTip>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="icon" aria-label="Layout and settings">
+                  <SettingsIcon />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+                <DropdownMenuItem onSelect={onResetLayout}>Reset layout</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Open settings</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             </div>
           </header>
 
@@ -1034,16 +1079,17 @@ export function App() {
               )}
             >
               {notesOpen && (
-                <button
-                  type="button"
-                  aria-label="Resize notes pane"
-                  className={cn(
-                    "absolute inset-y-0 left-0 z-10 flex w-3 -translate-x-1/2 cursor-col-resize items-center justify-center border-0 bg-transparent p-0",
-                    "before:block before:h-10 before:w-1 before:rounded-full before:bg-border before:transition-colors",
-                    "hover:before:bg-accent focus-visible:before:bg-accent",
-                    notesResizing && "before:bg-accent",
-                  )}
-                  onPointerDown={onNotesResizeStart}
+                <ResizeHandle
+                  edge="left"
+                  label="Resize notes pane"
+                  value={notesWidth}
+                  className={notesResizing ? "before:bg-accent" : undefined}
+                  onChange={(next) => {
+                    setNotesResizing(true);
+                    setNotesWidth(clampNotesWidth(next));
+                  }}
+                  onCommit={commitNotesWidth}
+                  onReset={() => commitNotesWidth(NOTES_WIDTH_DEFAULT)}
                 />
               )}
               <div className="flex h-[52px] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
@@ -1053,7 +1099,7 @@ export function App() {
                     {activePage?.title ?? project?.title ?? "Notes"}
                   </h2>
                 </div>
-                <Button type="button" variant="ghost" size="sm" className="text-[0.7rem]" onClick={() => setNotesOpen(false)}>
+                <Button type="button" variant="ghost" size="sm" className="text-[0.7rem]" onClick={() => changeNotesOpen(false)}>
                   Close
                 </Button>
               </div>
