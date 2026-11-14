@@ -34,9 +34,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { ChatList } from "@/components/chat-list";
 import { ResizeHandle } from "@/components/resize-handle";
 import { chatBubble, pageShell } from "@/lib/page-shell";
 import { composerBlockReason, friendlyError } from "@/lib/errors";
+import { loadChatOrder, sortChats } from "@/lib/chat-order";
 import {
   NOTES_WIDTH_DEFAULT,
   SIDEBAR_RAIL,
@@ -136,6 +138,7 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
   const [chatsByProject, setChatsByProject] = useState<Record<string, Chat[]>>({});
+  const [chatOrderEpoch, setChatOrderEpoch] = useState(0);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [chatId, setChatId] = useState("");
   const [pages, setPages] = useState<NotePage[]>([]);
@@ -168,6 +171,10 @@ export function App() {
   const canSend = !sendBlock;
   const project = projects.find((item) => item.id === projectId) ?? null;
   const chats = chatsByProject[projectId] ?? [];
+  const orderedChats =
+    chatOrderEpoch >= 0 && projectId
+      ? sortChats(chats, loadChatOrder(projectId))
+      : chats;
   const session = chats.find((item) => item.id === chatId) ?? null;
   const messages = chatId ? messagesByChat[chatId] ?? [] : [];
   const query = sessionQuery.trim().toLowerCase();
@@ -634,10 +641,17 @@ export function App() {
               )}
               {projects.map((item) => {
                 const open = expandedIds.includes(item.id);
-                const subjectChats = (chatsByProject[item.id] ?? []).filter(
-                  (chat) => !query || chat.title.toLowerCase().includes(query) || item.title.toLowerCase().includes(query),
-                );
-                if (query && !item.title.toLowerCase().includes(query) && !subjectChats.length) return null;
+                const subjectChats = chatsByProject[item.id] ?? [];
+                const visibleChatCount = query
+                  ? subjectChats.filter((chat) => chat.title.toLowerCase().includes(query)).length
+                  : subjectChats.length;
+                if (
+                  query &&
+                  !item.title.toLowerCase().includes(query) &&
+                  !visibleChatCount
+                ) {
+                  return null;
+                }
                 const dot = subjectDot(item.title);
                 return (
                   <div key={item.id} className="flex flex-col gap-0.5">
@@ -673,7 +687,7 @@ export function App() {
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[0.7rem] font-medium text-foreground">{item.title}</span>
                             <span className="mt-0.5 block text-[0.56rem] text-muted-foreground">
-                              {subjectChats.length || (chatsByProject[item.id] ?? []).length} chats
+                              {subjectChats.length} chats
                             </span>
                           </span>
                         ) : (
@@ -702,40 +716,24 @@ export function App() {
                       )}
                     </div>
                     {sideOpen && open && (
-                      <ul className="ml-4 flex flex-col gap-0.5 border-l border-sidebar-border pl-2">
-                        {subjectChats.map((chat) => (
-                          <li key={chat.id}>
-                            <button
-                              type="button"
-                              aria-current={chat.id === chatId ? "true" : undefined}
-                              className={cn(
-                                "w-full cursor-pointer truncate rounded-md px-2.5 py-1.5 text-left text-[0.7rem] transition-colors duration-200",
-                                chat.id === chatId
-                                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-                              )}
-                              onClick={() => selectChat(item.id, chat.id)}
-                            >
-                              {chat.title}
-                            </button>
-                          </li>
-                        ))}
-                        {!subjectChats.length && (
-                          <li className={cn(pageShell.subtitle, "px-2.5 py-1 text-[0.65rem]")}>No chats yet.</li>
-                        )}
-                        <li>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-full justify-start px-2.5 text-[0.7rem] font-medium text-muted-foreground"
-                            disabled={busy}
-                            onClick={() => void onCreateChat(item.id)}
-                          >
-                            <Plus className="size-3.5" /> New chat
-                          </Button>
-                        </li>
-                      </ul>
+                      <ChatList
+                        projectId={item.id}
+                        chats={subjectChats}
+                        activeChatId={item.id === projectId ? chatId : null}
+                        query={query}
+                        busy={busy}
+                        onSelect={(id) => selectChat(item.id, id)}
+                        onCreate={() => void onCreateChat(item.id)}
+                        onOrderChange={() => setChatOrderEpoch((n) => n + 1)}
+                        onTitleChange={(updated) => {
+                          setChatsByProject((current) => ({
+                            ...current,
+                            [item.id]: (current[item.id] ?? []).map((row) =>
+                              row.id === updated.id ? updated : row,
+                            ),
+                          }));
+                        }}
+                      />
                     )}
                   </div>
                 );
@@ -833,13 +831,13 @@ export function App() {
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Chats</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {chats.map((chat) => (
+                {orderedChats.map((chat) => (
                   <DropdownMenuItem key={chat.id} onSelect={() => selectChat(projectId, chat.id)}>
                     {chat.id === chatId && <Check />}
                     {chat.title}
                   </DropdownMenuItem>
                 ))}
-                {!chats.length && <DropdownMenuItem disabled>No chats yet</DropdownMenuItem>}
+                {!orderedChats.length && <DropdownMenuItem disabled>No chats yet</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={busy || dbDown || !projectId} onSelect={() => void onCreateChat()}>
                   New chat
