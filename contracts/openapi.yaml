@@ -95,6 +95,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Chat"
+  /v1/chats/{chatId}:
+    patch:
+      operationId: patchChat
+      parameters:
+        - $ref: "#/components/parameters/ChatId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          description: Updated chat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+        "404":
+          description: Chat not found
   /v1/chats/{chatId}/messages:
     get:
       operationId: listMessages

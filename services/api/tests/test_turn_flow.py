@@ -276,6 +276,21 @@ class TurnFlowTest(unittest.TestCase):
         self.assertEqual(page["blocks"][0]["version"], 1)
         self.assertEqual(page["blocks"][1]["type"], "bulleted_list_item")
 
+    def test_patch_chat_title(self):
+        project = self.client.post("/v1/projects", json={"title": "Rename subject"}).json()
+        chat = self.client.post(
+            f"/v1/projects/{project['id']}/chats",
+            json={"title": "Untitled chat"},
+        ).json()
+        updated = self.client.patch(f"/v1/chats/{chat['id']}", json={"title": "Torque drills"})
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["title"], "Torque drills")
+        missing = self.client.patch(
+            "/v1/chats/00000000-0000-0000-0000-000000000000",
+            json={"title": "Nope"},
+        )
+        self.assertEqual(missing.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

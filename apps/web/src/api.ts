@@ -62,6 +62,13 @@ export function createChat(projectId: string): Promise<Chat> {
   });
 }
 
+export function renameChat(chatId: string, title: string): Promise<Chat> {
+  return request(`/v1/chats/${chatId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
 export function listMessages(chatId: string): Promise<Message[]> {
   return request(`/v1/chats/${chatId}/messages`);
 }

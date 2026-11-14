@@ -180,6 +180,20 @@ async def create_chat(project_id: str, body: ChatIn):
     return chat
 
 
+@app.patch("/v1/chats/{chat_id}")
+async def patch_chat(chat_id: str, body: ChatIn):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Title cannot be empty.")
+    try:
+        chat = await db.update_chat_title(chat_id, title)
+    except OperationalError:
+        return db_down()
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    return chat
+
+
 @app.get("/v1/chats/{chat_id}/messages")
 async def messages(chat_id: str):
     try:

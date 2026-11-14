@@ -81,6 +81,24 @@ async def create_chat(project_id: str, title: str) -> dict | None:
     return {"id": chat_id, "projectId": project_id, "title": title}
 
 
+async def update_chat_title(chat_id: str, title: str) -> dict | None:
+    async with await connect() as conn:
+        row = await (
+            await conn.execute(
+                """
+                UPDATE chats SET title = %s
+                WHERE id = %s
+                RETURNING id, project_id, title
+                """,
+                (title, chat_id),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        await conn.commit()
+    return _chat(row)
+
+
 async def list_messages(chat_id: str) -> list[dict] | None:
     async with await connect() as conn:
         found = await conn.execute("SELECT id FROM chats WHERE id = %s", (chat_id,))
