@@ -8,6 +8,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from tests import testdb  # noqa: F401  isort: skip
 from fastapi.testclient import TestClient
 
 from tidyai_api.main import app
