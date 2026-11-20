@@ -94,6 +94,7 @@ class TurnFlowTest(unittest.TestCase):
         if health.json().get("db") != "ok":
             cls.client.__exit__(None, None, None)
             raise unittest.SkipTest("postgres is not running")
+        testdb.sign_in(cls.client)
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), _Provider)
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -291,6 +292,42 @@ class TurnFlowTest(unittest.TestCase):
             json={"title": "Nope"},
         )
         self.assertEqual(missing.status_code, 404)
+
+    def test_other_users_data_is_not_found(self):
+        project = self.client.post("/v1/projects", json={"title": "Private"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Mine"}).json()
+        saved = self.client.put(
+            f"/v1/projects/{project['id']}/pages/{project['rootPageId']}/blocks",
+            json={"blocks": [{"id": "b-private", "type": "paragraph", "payload": {"text": "secret"}}]},
+        ).json()
+        block_id = saved[0]["id"]
+        page_path = f"/v1/projects/{project['id']}/pages/{project['rootPageId']}"
+
+        anonymous = TestClient(app)
+        self.assertEqual(anonymous.get("/v1/projects").status_code, 401)
+        self.assertEqual(anonymous.get(page_path).status_code, 401)
+
+        other = TestClient(app)
+        testdb.sign_in(other)
+        self.assertNotIn(project["id"], [row["id"] for row in other.get("/v1/projects").json()])
+        attempts = [
+            other.get(f"/v1/projects/{project['id']}/chats"),
+            other.post(f"/v1/projects/{project['id']}/chats", json={"title": "x"}),
+            other.patch(f"/v1/chats/{chat['id']}", json={"title": "x"}),
+            other.get(f"/v1/chats/{chat['id']}/messages"),
+            other.get(f"/v1/projects/{project['id']}/pages"),
+            other.get(page_path),
+            other.put(f"{page_path}/blocks", json={"blocks": []}),
+            other.patch(f"/v1/blocks/{block_id}", json={"version": 1, "payload": {"text": "x"}}),
+            other.post(
+                f"/v1/chats/{chat['id']}/turns",
+                headers={"X-Provider-Key": "sk-test-secret-value-123456"},
+                json={"text": "hi", "protocol": "openai_chat", "baseUrl": "http://127.0.0.1:1/v1", "model": "fake"},
+            ),
+        ]
+        self.assertEqual([r.status_code for r in attempts], [404] * len(attempts))
+        page = self.client.get(page_path).json()
+        self.assertEqual([b["payload"].get("text") for b in page["blocks"]], ["secret"])
 
 
 if __name__ == "__main__":

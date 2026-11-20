@@ -28,3 +28,30 @@ try:
             admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(TEST_DB)))
 except psycopg.OperationalError:
     pass
+
+ORIGIN = "http://127.0.0.1:5173"
+HEADERS = {"Origin": ORIGIN, "X-Tidyai-Csrf": "1"}
+
+
+def sign_in(client) -> str:
+    """Give a TestClient a fresh verified user, its session cookie, and the CSRF headers."""
+    import asyncio
+    from uuid import uuid4
+
+    from tidyai_api import auth_store, db
+    from tidyai_api.config import settings
+
+    async def make() -> tuple[str, str]:
+        async with await db.connect() as conn:
+            user = await auth_store.create_user(
+                conn, f"user-{uuid4().hex[:10]}@example.com", None, "", verified=True
+            )
+            user_id = user["id"]
+            token = await auth_store.create_session(conn, user_id, "testclient", "127.0.0.1")
+            await conn.commit()
+        return user_id, token
+
+    user_id, token = asyncio.run(make())
+    client.cookies.set(settings.session_cookie, token)
+    client.headers.update(HEADERS)
+    return user_id

@@ -80,6 +80,19 @@ async def auth_error(_request: Request, exc: AuthError) -> JSONResponse:
     )
 
 
+@app.exception_handler(OperationalError)
+async def db_error(_request: Request, _exc: OperationalError) -> JSONResponse:
+    return db_down()
+
+
+async def owned(user: str, kind: Literal["project", "chat", "block"], item_id: str) -> str:
+    """Project id for a resource the user owns. Someone else's id is a 404, same as a missing one."""
+    project_id = await db.owned_project(user, kind, item_id)
+    if project_id is None:
+        raise HTTPException(status_code=404, detail=f"{kind.capitalize()} not found.")
+    return project_id
+
+
 class ProjectIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
@@ -164,23 +177,24 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/v1/projects")
-async def projects():
+async def projects(user: str = Depends(current_user)):
     try:
-        return await db.list_projects()
+        return await db.list_projects(user)
     except OperationalError:
         return db_down()
 
 
 @app.post("/v1/projects", status_code=201)
-async def create_project(body: ProjectIn):
+async def create_project(body: ProjectIn, user: str = Depends(current_user)):
     try:
-        return await db.create_project(body.title.strip())
+        return await db.create_project(user, body.title.strip())
     except OperationalError:
         return db_down()
 
 
 @app.get("/v1/projects/{project_id}/chats")
-async def chats(project_id: str):
+async def chats(project_id: str, user: str = Depends(current_user)):
+    await owned(user, "project", project_id)
     try:
         rows = await db.list_chats(project_id)
     except OperationalError:
@@ -189,7 +203,8 @@ async def chats(project_id: str):
 
 
 @app.post("/v1/projects/{project_id}/chats", status_code=201)
-async def create_chat(project_id: str, body: ChatIn):
+async def create_chat(project_id: str, body: ChatIn, user: str = Depends(current_user)):
+    await owned(user, "project", project_id)
     try:
         chat = await db.create_chat(project_id, body.title.strip())
     except OperationalError:
@@ -200,10 +215,11 @@ async def create_chat(project_id: str, body: ChatIn):
 
 
 @app.patch("/v1/chats/{chat_id}")
-async def patch_chat(chat_id: str, body: ChatIn):
+async def patch_chat(chat_id: str, body: ChatIn, user: str = Depends(current_user)):
     title = body.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title cannot be empty.")
+    await owned(user, "chat", chat_id)
     try:
         chat = await db.update_chat_title(chat_id, title)
     except OperationalError:
@@ -214,7 +230,8 @@ async def patch_chat(chat_id: str, body: ChatIn):
 
 
 @app.get("/v1/chats/{chat_id}/messages")
-async def messages(chat_id: str):
+async def messages(chat_id: str, user: str = Depends(current_user)):
+    await owned(user, "chat", chat_id)
     try:
         rows = await db.list_messages(chat_id)
     except OperationalError:
@@ -225,7 +242,8 @@ async def messages(chat_id: str):
 
 
 @app.get("/v1/projects/{project_id}/pages")
-async def pages(project_id: str):
+async def pages(project_id: str, user: str = Depends(current_user)):
+    await owned(user, "project", project_id)
     try:
         rows = await db.list_pages(project_id)
     except OperationalError:
@@ -236,7 +254,8 @@ async def pages(project_id: str):
 
 
 @app.get("/v1/projects/{project_id}/pages/{page_id}")
-async def page(project_id: str, page_id: str):
+async def page(project_id: str, page_id: str, user: str = Depends(current_user)):
+    await owned(user, "project", project_id)
     try:
         row = await db.get_page(project_id, page_id)
     except OperationalError:
@@ -247,7 +266,8 @@ async def page(project_id: str, page_id: str):
 
 
 @app.patch("/v1/blocks/{block_id}")
-async def patch_block(block_id: str, body: BlockIn):
+async def patch_block(block_id: str, body: BlockIn, user: str = Depends(current_user)):
+    await owned(user, "block", block_id)
     try:
         async with await db.connect() as conn:
             cur = await conn.execute("SELECT type FROM blocks WHERE id = %s", (block_id,))
@@ -275,7 +295,10 @@ async def patch_block(block_id: str, body: BlockIn):
 
 
 @app.put("/v1/projects/{project_id}/pages/{page_id}/blocks")
-async def put_page_blocks(project_id: str, page_id: str, body: PageBlocksIn):
+async def put_page_blocks(
+    project_id: str, page_id: str, body: PageBlocksIn, user: str = Depends(current_user)
+):
+    await owned(user, "project", project_id)
     cleaned: list[dict] = []
     seen: set[str] = set()
     for item in body.blocks:
@@ -305,7 +328,9 @@ async def create_turn(
     request: Request,
     x_provider_key: str | None = Header(default=None, alias="X-Provider-Key"),
     x_embedding_key: str | None = Header(default=None, alias="X-Embedding-Key"),
+    user: str = Depends(current_user),
 ):
+    await owned(user, "chat", chat_id)
     if body.protocol not in PROTOCOLS:
         return JSONResponse(
             {"code": "bad_protocol", "message": "Protocol must be openai_chat or gemini."},

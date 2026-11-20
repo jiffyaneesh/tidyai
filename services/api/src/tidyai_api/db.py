@@ -32,20 +32,45 @@ async def init_schema() -> None:
         await conn.commit()
 
 
-async def list_projects() -> list[dict]:
+_OWNED = {
+    "project": "SELECT id FROM projects WHERE id = %s AND owner_id = %s",
+    "chat": """
+        SELECT p.id FROM chats c JOIN projects p ON p.id = c.project_id
+        WHERE c.id = %s AND p.owner_id = %s
+    """,
+    "block": """
+        SELECT p.id FROM blocks b
+        JOIN pages g ON g.id = b.page_id
+        JOIN projects p ON p.id = g.project_id
+        WHERE b.id = %s AND p.owner_id = %s
+    """,
+}
+
+
+async def owned_project(owner_id: str, kind: str, item_id: str) -> str | None:
+    """Project id that holds item_id when owner_id owns it. None means not found."""
     async with await connect() as conn:
-        cur = await conn.execute("SELECT id, title FROM projects ORDER BY created_at")
+        row = await (await conn.execute(_OWNED[kind], (item_id, owner_id))).fetchone()
+    return row["id"] if row else None
+
+
+async def list_projects(owner_id: str) -> list[dict]:
+    async with await connect() as conn:
+        cur = await conn.execute(
+            "SELECT id, title FROM projects WHERE owner_id = %s ORDER BY created_at",
+            (owner_id,),
+        )
         return await cur.fetchall()
 
 
-async def create_project(title: str) -> dict:
+async def create_project(owner_id: str, title: str) -> dict:
     project_id = str(uuid4())
     page_id = str(uuid4())
     async with await connect() as conn:
         async with conn.transaction():
             await conn.execute(
-                "INSERT INTO projects (id, title) VALUES (%s, %s)",
-                (project_id, title),
+                "INSERT INTO projects (id, title, owner_id) VALUES (%s, %s, %s)",
+                (project_id, title, owner_id),
             )
             await conn.execute(
                 """

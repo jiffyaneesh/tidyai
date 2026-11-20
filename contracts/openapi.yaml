@@ -10,6 +10,8 @@ info:
     Auth is an opaque session cookie (__Host-tidyai_session over https,
     tidyai_session on local http). Every POST, PATCH, PUT, DELETE needs
     X-Tidyai-Csrf: 1 and an allowed Origin, or the guard answers 403 bad_origin.
+    Project, chat, page, and block routes need a session (401 without one)
+    and answer 404 for ids the user does not own, same as for missing ids.
     Errors are {code, message}. Signup, forgot, and resend always answer 202
     so they do not reveal whether an email has an account.
 
