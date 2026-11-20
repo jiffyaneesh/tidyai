@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: tidyai
-  version: 0.3.0
+  version: 0.3.1
   description: |
     Live contract. Accounts follow docs/research/14-accounts-auth.md.
     Provider keys travel on X-Provider-Key, never in a JSON body.
@@ -14,6 +14,8 @@ info:
     and answer 404 for ids the user does not own, same as for missing ids.
     Errors are {code, message}. Signup, forgot, and resend always answer 202
     so they do not reveal whether an email has an account.
+    Any request body over 2 MiB answers 413 too_large. Responses default to
+    Cache-Control: no-store. There is no generated /docs or /openapi.json.
 
     POST /v1/chats/{chatId}/turns is text/event-stream:
     text, status, notes (JSON list of page ids), error ({code, message}), done.

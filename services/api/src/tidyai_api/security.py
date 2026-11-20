@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import secrets
@@ -10,6 +11,7 @@ from datetime import timedelta
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from psycopg import AsyncConnection
+from starlette.datastructures import MutableHeaders
 
 # OWASP floor: Argon2id m=19 MiB, t=2, p=1.
 _hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
@@ -76,6 +78,16 @@ def verify_password(stored: str | None, password: str) -> bool:
         return _hasher.verify(stored, password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
+
+
+# Argon2 is ~19 MiB and tens of ms per call. Off the event loop, the default thread
+# pool also caps how many run at once.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(stored: str | None, password: str) -> bool:
+    return await asyncio.to_thread(verify_password, stored, password)
 
 
 def needs_rehash(stored: str) -> bool:
@@ -165,15 +177,84 @@ class OriginGuard:
 
 
 async def _reject(send) -> None:
-    body = b'{"code":"bad_origin","message":"Request blocked. Reload the page and try again."}'
+    await _json(send, 403, b'{"code":"bad_origin","message":"Request blocked. Reload the page and try again."}')
+
+
+async def _json(send, status: int, body: bytes) -> None:
     await send(
         {
             "type": "http.response.start",
-            "status": 403,
+            "status": status,
             "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
         }
     )
     await send({"type": "http.response.body", "body": body})
+
+
+MAX_BODY = 2 * 1024 * 1024
+_TOO_LARGE = b'{"code":"too_large","message":"That request is too large."}'
+
+
+class _BodyTooLarge(Exception):
+    pass
+
+
+class HttpHardening:
+    """Pure ASGI: caps request bodies and stamps security headers on every response.
+
+    The API only serves JSON and SSE, so its CSP allows nothing. The SPA's own CSP is
+    set by whatever serves the built files (docs/research/15-security-pass.md).
+    """
+
+    def __init__(self, app, *, hsts: bool, max_body: int = MAX_BODY):
+        self.app = app
+        self.max_body = max_body
+        self.headers = [
+            ("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"),
+            ("X-Content-Type-Options", "nosniff"),
+            ("X-Frame-Options", "DENY"),
+            ("Referrer-Policy", "no-referrer"),
+            ("Cross-Origin-Resource-Policy", "same-origin"),
+        ]
+        if hsts:
+            self.headers.append(("Strict-Transport-Security", "max-age=31536000; includeSubDomains"))
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        length = dict(scope["headers"]).get(b"content-length", b"")
+        if length and (not length.isdigit() or int(length) > self.max_body):
+            await _json(send, 413, _TOO_LARGE)
+            return
+        received = 0
+        started = False
+
+        async def capped_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_body:
+                    raise _BodyTooLarge
+            return message
+
+        async def stamped_send(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+                headers = MutableHeaders(scope=message)
+                for key, value in self.headers:
+                    headers.setdefault(key, value)
+                headers.setdefault("Cache-Control", "no-store")
+            await send(message)
+
+        try:
+            await self.app(scope, capped_receive, stamped_send)
+        except _BodyTooLarge:
+            if started:
+                raise
+            await _json(send, 413, _TOO_LARGE)
 
 
 async def rate_limited(conn: AsyncConnection, bucket: str, limit: int, window: timedelta) -> bool:

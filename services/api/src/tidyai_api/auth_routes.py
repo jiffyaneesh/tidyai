@@ -23,14 +23,14 @@ from tidyai_api.security import (
     RESET_TTL,
     SESSION_TTL,
     VERIFY_TTL,
-    hash_password,
+    hash_password_async,
     needs_rehash,
     normalize_email,
     password_problem,
     rate_limited,
     safe_next,
     token_digest,
-    verify_password,
+    verify_password_async,
 )
 
 log = logging.getLogger("tidyai.auth")
@@ -139,6 +139,10 @@ async def user_out(conn: AsyncConnection, user: dict) -> dict:
 
 
 async def _start_session(conn: AsyncConnection, request: Request, user_id: str) -> str:
+    """A sign-in replaces whatever session this browser held, so no stale token outlives it."""
+    previous = request.cookies.get(settings.session_cookie)
+    if previous:
+        await store.delete_session(conn, token_digest(previous))
     return await store.create_session(conn, user_id, request.headers.get("user-agent", ""), client_ip(request))
 
 
@@ -186,7 +190,7 @@ async def signup(body: SignupIn, request: Request):
     if problem:
         return error(422, "weak_password", problem)
     # Hash before the lookup so both branches cost the same.
-    password_hash = hash_password(body.password)
+    password_hash = await hash_password_async(body.password)
     async with await db.connect() as conn:
         async with conn.transaction():
             if await rate_limited(conn, f"signup:ip:{client_ip(request)}", 10, WINDOW_1H):
@@ -251,13 +255,13 @@ async def login(body: LoginIn, request: Request):
         if limited_ip or limited_email:
             return error(*TOO_MANY)
         user = await store.user_by_email(conn, email) if email else None
-        if not verify_password(user["password_hash"] if user else None, body.password):
+        if not await verify_password_async(user["password_hash"] if user else None, body.password):
             return error(*BAD_LOGIN)
         if user["email_verified_at"] is None:
             return error(403, "email_unverified", "Confirm your email first. We can send a new link.")
         async with conn.transaction():
             if needs_rehash(user["password_hash"]):
-                await store.set_password(conn, user["id"], hash_password(body.password))
+                await store.set_password(conn, user["id"], await hash_password_async(body.password))
             token = await _start_session(conn, request, user["id"])
             out = await user_out(conn, user)
     response = JSONResponse(out, headers={"Cache-Control": "no-store"})
@@ -312,7 +316,7 @@ async def reset(body: ResetIn, request: Request):
         problem = password_problem(body.password, user["email"])
         if problem:
             return error(422, "weak_password", problem)
-        password_hash = hash_password(body.password)
+        password_hash = await hash_password_async(body.password)
         async with conn.transaction():
             if await store.consume_token(conn, body.token, "reset_password") != user["id"]:
                 return error(400, "bad_token", "This link is invalid or expired. Request a new one.")
@@ -406,12 +410,12 @@ async def change_password(body: PasswordChangeIn, request: Request, ctx: Session
         async with conn.transaction():
             if await rate_limited(conn, f"pwchange:user:{ctx.id}", 10, WINDOW_15M):
                 return error(*TOO_MANY)
-        if ctx.user["password_hash"] and not verify_password(ctx.user["password_hash"], body.currentPassword):
+        if ctx.user["password_hash"] and not await verify_password_async(ctx.user["password_hash"], body.currentPassword):
             return error(403, "bad_password", "Current password is incorrect.")
         problem = password_problem(body.newPassword, ctx.user["email"])
         if problem:
             return error(422, "weak_password", problem)
-        password_hash = hash_password(body.newPassword)
+        password_hash = await hash_password_async(body.newPassword)
         async with conn.transaction():
             await store.set_password(conn, ctx.id, password_hash)
             await store.delete_sessions(conn, ctx.id, keep_digest=ctx.digest)
@@ -461,7 +465,7 @@ async def delete_me(body: DeleteAccountIn, ctx: SessionContext = Depends(session
     if normalize_email(body.confirmEmail) != ctx.user["email"]:
         return error(400, "confirm_mismatch", "Type your account email exactly to confirm.")
     if ctx.user["password_hash"]:
-        if not verify_password(ctx.user["password_hash"], body.password):
+        if not await verify_password_async(ctx.user["password_hash"], body.password):
             return error(403, "bad_password", "Password is incorrect.")
     else:
         async with await db.connect() as conn:

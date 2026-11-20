@@ -159,6 +159,26 @@ class AuthFlowTest(unittest.TestCase):
         evil = {"Origin": "https://evil.example", "X-Tidyai-Csrf": "1"}
         self.assertEqual(self.client.post("/v1/auth/signup", json=body, headers=evil).status_code, 403)
 
+    def test_login_replaces_the_browsers_previous_session(self):
+        email = self.signed_up_and_verified()
+        old_cookie = dict(self.client.cookies)
+        self.assertEqual(self.post("/v1/auth/login", {"email": email, "password": GOOD}).status_code, 200)
+        self.assertEqual(len(self.client.get("/v1/me/sessions").json()), 1)
+        stale = TestClient(app, cookies=old_cookie)
+        self.assertEqual(stale.get("/v1/me").status_code, 401)
+
+    def test_hardening_headers_body_cap_and_no_docs(self):
+        health = self.client.get("/health")
+        self.assertEqual(health.headers["x-content-type-options"], "nosniff")
+        self.assertIn("frame-ancestors 'none'", health.headers["content-security-policy"])
+        self.assertEqual(health.headers["cache-control"], "no-store")
+        blocked = self.client.post("/v1/auth/signup", json={})
+        self.assertEqual((blocked.status_code, blocked.headers["x-frame-options"]), (403, "DENY"))
+        huge = self.post("/v1/auth/login", {"email": "a@example.com", "password": "x" * (3 * 1024 * 1024)})
+        self.assertEqual((huge.status_code, huge.json()["code"]), (413, "too_large"))
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            self.assertEqual(self.client.get(path).status_code, 404, path)
+
     def test_password_change_keeps_current_session_only(self):
         email = self.signed_up_and_verified()
         other = TestClient(app)

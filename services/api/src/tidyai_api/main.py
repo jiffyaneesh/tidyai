@@ -43,7 +43,7 @@ from tidyai_api import db
 from tidyai_api.auth_routes import AuthError, current_user
 from tidyai_api.auth_routes import router as auth_router
 from tidyai_api.config import settings
-from tidyai_api.security import OriginGuard
+from tidyai_api.security import HttpHardening, OriginGuard
 
 configure_egress(allow_private=not settings.hosted)
 
@@ -58,7 +58,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="tidyai", version="0.1.0", lifespan=lifespan)
+# contracts/openapi.yaml is the contract; the generated docs are only attack surface.
+app = FastAPI(title="tidyai", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 # The web app reaches the API same-origin through a proxy at /api, so there is no CORS.
 # Holds only Google OAuth state + PKCE verifier between redirect and callback.
 app.add_middleware(
@@ -70,6 +71,7 @@ app.add_middleware(
     https_only=settings.cookie_secure,
 )
 app.add_middleware(OriginGuard, allowed_origins=settings.app_origins)
+app.add_middleware(HttpHardening, hsts=settings.cookie_secure)
 app.include_router(auth_router)
 
 
