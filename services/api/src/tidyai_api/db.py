@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
@@ -329,8 +330,18 @@ async def update_block(block_id: str, version: int, payload: dict) -> dict | Non
         return saved
 
 
-async def replace_page_blocks(project_id: str, page_id: str, blocks: list[dict]) -> list[dict] | None:
-    """Replace the ordered block list for one page. Preserves version when id+type+payload match."""
+async def replace_page_blocks(project_id: str, page_id: str, blocks: list[dict]) -> list[dict] | None | str:
+    """Replace the ordered block list for one page. Preserves version when id+type+payload match.
+
+    "conflict" means a block id already lives on another page.
+    """
+    try:
+        return await _replace_page_blocks(project_id, page_id, blocks)
+    except UniqueViolation:
+        return "conflict"
+
+
+async def _replace_page_blocks(project_id: str, page_id: str, blocks: list[dict]) -> list[dict] | None:
     async with await connect() as conn:
         async with conn.transaction():
             page = await (

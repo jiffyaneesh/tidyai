@@ -296,12 +296,15 @@ class TurnFlowTest(unittest.TestCase):
     def test_other_users_data_is_not_found(self):
         project = self.client.post("/v1/projects", json={"title": "Private"}).json()
         chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Mine"}).json()
-        saved = self.client.put(
-            f"/v1/projects/{project['id']}/pages/{project['rootPageId']}/blocks",
-            json={"blocks": [{"id": "b-private", "type": "paragraph", "payload": {"text": "secret"}}]},
-        ).json()
-        block_id = saved[0]["id"]
+        from uuid import uuid4
+
+        block_id = str(uuid4())
         page_path = f"/v1/projects/{project['id']}/pages/{project['rootPageId']}"
+        saved = self.client.put(
+            f"{page_path}/blocks",
+            json={"blocks": [{"id": block_id, "type": "paragraph", "payload": {"text": "secret"}}]},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
 
         anonymous = TestClient(app)
         self.assertEqual(anonymous.get("/v1/projects").status_code, 401)
@@ -326,6 +329,12 @@ class TurnFlowTest(unittest.TestCase):
             ),
         ]
         self.assertEqual([r.status_code for r in attempts], [404] * len(attempts))
+        theirs = other.post("/v1/projects", json={"title": "Theirs"}).json()
+        stolen = other.put(
+            f"/v1/projects/{theirs['id']}/pages/{theirs['rootPageId']}/blocks",
+            json={"blocks": [{"id": block_id, "type": "paragraph", "payload": {"text": "moved"}}]},
+        )
+        self.assertEqual(stolen.status_code, 409)
         page = self.client.get(page_path).json()
         self.assertEqual([b["payload"].get("text") for b in page["blocks"]], ["secret"])
 

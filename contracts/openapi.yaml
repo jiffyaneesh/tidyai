@@ -483,6 +483,8 @@ paths:
           description: Unknown type or bad payload
         "404":
           description: Page not found
+        "409":
+          description: A block id already lives on another page
   /v1/blocks/{blockId}:
     patch:
       operationId: patchBlock

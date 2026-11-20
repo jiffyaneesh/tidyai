@@ -314,12 +314,17 @@ async def put_page_blocks(
         cleaned.append({"id": item.id, "type": item.type, "payload": payload})
     try:
         saved = await db.replace_page_blocks(project_id, page_id, cleaned)
-        if saved is not None:
+        if isinstance(saved, list):
             await db.sync_project_chunks(project_id)
     except OperationalError:
         return db_down()
     if saved is None:
         raise HTTPException(status_code=404, detail="Page not found.")
+    if saved == "conflict":
+        return JSONResponse(
+            {"code": "conflict", "message": "A block id is already in use. Reload the page."},
+            status_code=409,
+        )
     return [block_out(row) for row in saved]
 
 
