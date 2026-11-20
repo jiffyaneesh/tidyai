@@ -60,7 +60,7 @@ KISS ceilings already chosen. Do not cross them in a drive-by:
 
 - No LangGraph or other agent framework. The turn may call `search_notes` at most twice, then stream, then one note-op call, then validate.
 - No third provider protocol (Anthropic native, Cohere, a plugin loader) until a host cannot be expressed as `openai_chat` or `gemini`.
-- No card tables, reranker, separate vector database, or accounts. Retrieval is Postgres `tsvector` plus `pgvector` in `schema.sql`. Chunks are blocks. Embeddings are optional. A missing embedding model means keyword search.
+- No card tables, reranker, or separate vector database. Accounts follow [docs/research/14-accounts-auth.md](docs/research/14-accounts-auth.md). Retrieval is Postgres `tsvector` plus `pgvector` in `schema.sql`. Chunks are blocks. Embeddings are optional. A missing embedding model means keyword search.
 - `ponytail:` comments name a ceiling and the upgrade. Do not delete them to look tidy, and do not build the upgrade early.
 
 ## UI
@@ -83,7 +83,8 @@ Fault UX ([docs/research/12-fault-ux.md](docs/research/12-fault-ux.md)): disable
 
 - Never log `X-Provider-Key`, `Authorization`, or `x-goog-api-key`. Redact `sk-…` and `AIza…` before any error string leaves the process.
 - Provider calls use `follow_redirects=False`. A redirect is an error. The key is not forwarded.
-- Base URLs must be `http` or `https`, with no username or password. Localhost is allowed because local models are a feature. Do not add accounts on top of a client-supplied base URL. That becomes server-side request forgery.
+- Base URLs must be `http` or `https`, with no username or password. `TIDYAI_EGRESS=local` (the dev default) allows localhost models. `TIDYAI_EGRESS=hosted` requires https and a DNS-pinned connection to a public IP. Any multi-user deploy must run hosted, or a client-supplied base URL becomes server-side request forgery.
+- Every domain query is scoped to the session user through `projects.owner_id`. A miss returns 404. Sessions are opaque hashed tokens in an HttpOnly cookie. Unsafe methods need `X-Tidyai-Csrf` and an allowed `Origin`. Never log passwords, session tokens, or reset/verify tokens.
 - The browser vault key is non-extractable, in IndexedDB. Ciphertext lives in `localStorage`. Do not fall back to storing the provider key in plaintext.
 
 ## Verify

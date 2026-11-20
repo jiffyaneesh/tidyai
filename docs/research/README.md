@@ -23,6 +23,7 @@ For the **as-built** system map (processes, tech stack, function-level flows, ce
 | [11-study-modes.md](11-study-modes.md) | Notes vs Web; A1 provider web search; B1 notes = pure Q&A |
 | [12-fault-ux.md](12-fault-ux.md) | Prevent invalid actions; sticky vs toast; Sonner |
 | [13-workspace-polish.md](13-workspace-polish.md) | Layout persist/resize; chat pin + accessible reorder; rename |
+| [14-accounts-auth.md](14-accounts-auth.md) | Users, sessions, email/password, Google OIDC, owner scoping, egress guard |
 
 ## Confidence legend
 
@@ -36,4 +37,4 @@ tidyai is a study workspace. A project is a subject. Inside it, chats are study 
 
 ## What is deliberately not built yet
 
-Flashcards, a reranker, accounts, and a separate vector database. Search is `search_notes` against Postgres, at most two calls. See [08-rag-tools.md](08-rag-tools.md).
+Flashcards, a reranker, and a separate vector database. Accounts landed in [14-accounts-auth.md](14-accounts-auth.md). Search is `search_notes` against Postgres, at most two calls. See [08-rag-tools.md](08-rag-tools.md).
