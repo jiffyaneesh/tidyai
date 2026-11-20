@@ -72,8 +72,26 @@ function base64ToBytes(value: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-export async function loadProfiles(): Promise<Profile[]> {
-  const raw = localStorage.getItem(STORAGE_KEY);
+/** Ciphertext is stored per account so two people sharing a browser never see each other's keys. */
+function ownerKeys(owner: string) {
+  if (!owner) throw new Error("Sign in to use the key vault.");
+  const keys = { profiles: `${STORAGE_KEY}.${owner}`, active: `${ACTIVE_KEY}.${owner}` };
+  // The vault from before accounts goes to the first account that opens it, then the old keys are gone.
+  const legacy = localStorage.getItem(STORAGE_KEY);
+  if (legacy !== null) {
+    if (localStorage.getItem(keys.profiles) === null) {
+      localStorage.setItem(keys.profiles, legacy);
+      const legacyActive = localStorage.getItem(ACTIVE_KEY);
+      if (legacyActive) localStorage.setItem(keys.active, legacyActive);
+    }
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
+  }
+  return keys;
+}
+
+export async function loadProfiles(owner: string): Promise<Profile[]> {
+  const raw = localStorage.getItem(ownerKeys(owner).profiles);
   if (!raw) return [];
   const stored = JSON.parse(raw) as { iv: string; data: string };
   const key = await vaultKey();
@@ -93,7 +111,8 @@ export async function loadProfiles(): Promise<Profile[]> {
   }));
 }
 
-export async function saveProfiles(profiles: Profile[]): Promise<void> {
+export async function saveProfiles(owner: string, profiles: Profile[]): Promise<void> {
+  const slot = ownerKeys(owner).profiles;
   const key = await vaultKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = await crypto.subtle.encrypt(
@@ -102,17 +121,17 @@ export async function saveProfiles(profiles: Profile[]): Promise<void> {
     new TextEncoder().encode(JSON.stringify(profiles)),
   );
   localStorage.setItem(
-    STORAGE_KEY,
+    slot,
     JSON.stringify({ iv: bytesToBase64(iv), data: bytesToBase64(new Uint8Array(cipher)) }),
   );
 }
 
-export function loadActiveId(): string {
-  return localStorage.getItem(ACTIVE_KEY) ?? "";
+export function loadActiveId(owner: string): string {
+  return localStorage.getItem(ownerKeys(owner).active) ?? "";
 }
 
-export function saveActiveId(id: string): void {
-  localStorage.setItem(ACTIVE_KEY, id);
+export function saveActiveId(owner: string, id: string): void {
+  localStorage.setItem(ownerKeys(owner).active, id);
 }
 
 export function profileError(profile: Profile): string {

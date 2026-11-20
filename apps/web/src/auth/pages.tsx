@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { friendlyError } from "@/lib/errors";
 import { safeNext, useAuth } from "./auth";
 
-function authMessage(err: unknown): string {
+export function authMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 429) return "Too many attempts. Wait a few minutes, then try again.";
     if (err.status >= 500) return friendlyError(err);
@@ -36,7 +36,7 @@ function Heading({ kicker, title, children }: { kicker: string; title: ReactNode
   );
 }
 
-function Alert({ tone = "error", children }: { tone?: "error" | "info"; children: ReactNode }) {
+export function Alert({ tone = "error", children }: { tone?: "error" | "info"; children: ReactNode }) {
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
@@ -51,7 +51,7 @@ function Alert({ tone = "error", children }: { tone?: "error" | "info"; children
   );
 }
 
-function Field({
+export function Field({
   label,
   hint,
   ...props
@@ -72,7 +72,7 @@ function Field({
   );
 }
 
-function PasswordField({
+export function PasswordField({
   label,
   value,
   onChange,

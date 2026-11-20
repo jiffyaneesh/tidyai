@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Copy,
   FileText,
+  KeyRound,
+  LogOut,
   Moon,
   PanelLeft,
   Plus,
@@ -15,7 +17,9 @@ import {
   Settings as SettingsIcon,
   Square,
   Sun,
+  UserRound,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +78,7 @@ import {
 } from "./api";
 import { loadStudyMode, saveStudyMode, type StudyMode } from "./lib/study-mode";
 import { bumpStudyStat, loadStudyStats, type StudyStats } from "./lib/study-stats";
+import { useAuth } from "./auth/auth";
 import { NotesEditor } from "./notes-editor";
 import { Settings } from "./Settings";
 import { loadActiveId, loadProfiles, saveActiveId, saveProfiles, type Profile } from "./vault";
@@ -82,6 +87,10 @@ type Citation = { sourceType?: string; sourceId?: string; snippet?: string };
 
 export function App() {
   const { theme, toggle } = useTheme();
+  const { user, signOut } = useAuth();
+  const owner = user?.id ?? "";
+  const navigate = useNavigate();
+  const location = useLocation();
   const layoutRef = useRef<LayoutPrefs>(loadLayoutPrefs());
   const [sideOpen, setSideOpen] = useState(() => resolvePaneOpen(layoutRef.current.sideOpen));
   const [notesOpen, setNotesOpen] = useState(() => resolvePaneOpen(layoutRef.current.notesOpen));
@@ -129,7 +138,12 @@ export function App() {
     setNotesWidth(next.notesWidth);
     toast.success("Layout reset.", { description: "Sidebar and notes returned to defaults." });
   }
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(
+    () => (location.state as { openProviders?: boolean } | null)?.openProviders === true,
+  );
+  useEffect(() => {
+    if (location.state) navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
   const [subjectOpen, setSubjectOpen] = useState(false);
   const [subjectName, setSubjectName] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
@@ -199,10 +213,10 @@ export function App() {
         }
         dbDownRef.current = true;
       });
-    void loadProfiles()
+    void loadProfiles(owner)
       .then((saved) => {
         setProfiles(saved);
-        const stored = loadActiveId();
+        const stored = loadActiveId(owner);
         setActiveId(saved.some((profile) => profile.id === stored) ? stored : saved[0]?.id ?? "");
       })
       .catch(() => {
@@ -555,8 +569,8 @@ export function App() {
   function changeProfiles(next: Profile[], id: string) {
     setProfiles(next);
     setActiveId(id);
-    saveActiveId(id);
-    void saveProfiles(next);
+    saveActiveId(owner, id);
+    void saveProfiles(owner, next);
   }
 
   return (
@@ -756,12 +770,46 @@ export function App() {
                 {sideOpen && "New subject"}
               </Button>
             </IconTip>
-            <IconTip label="Settings">
-              <Button type="button" variant="ghost" size={sideOpen ? "sm" : "icon"} className="w-full justify-start text-[0.7rem]" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
-                <SettingsIcon />
-                {sideOpen && "Settings"}
-              </Button>
-            </IconTip>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size={sideOpen ? "sm" : "icon"}
+                  className="h-auto w-full justify-start gap-2.5 py-1.5 text-[0.7rem]"
+                  aria-label="Account menu"
+                >
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-[0.625rem] font-bold text-accent-foreground">
+                    {(user?.displayName || user?.email || "?").slice(0, 1).toUpperCase()}
+                  </span>
+                  {sideOpen && <span className="min-w-0 truncate">{user?.displayName || user?.email}</span>}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-60">
+                <DropdownMenuLabel className="space-y-0.5">
+                  <span className="block truncate text-[0.75rem] font-semibold text-foreground">{user?.displayName || "Your account"}</span>
+                  <span className="block truncate text-[0.6875rem] font-normal text-muted-foreground">{user?.email}</span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => navigate("/profile")}>
+                  <UserRound />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/settings")}>
+                  <SettingsIcon />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+                  <KeyRound />
+                  Provider keys
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => void signOut()}>
+                  <LogOut />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </aside>
 
@@ -861,7 +909,7 @@ export function App() {
                 ))}
                 {!profiles.length && <DropdownMenuItem disabled>No providers yet</DropdownMenuItem>}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Open settings</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Manage provider keys</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <IconTip label={notesOpen ? "Hide notes" : "Show notes"}>
@@ -898,7 +946,8 @@ export function App() {
                 <DropdownMenuLabel>Workspace</DropdownMenuLabel>
                 <DropdownMenuItem onSelect={onResetLayout}>Reset layout</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Open settings</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Manage provider keys</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/settings")}>Account settings</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             </div>

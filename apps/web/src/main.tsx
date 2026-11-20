@@ -1,6 +1,7 @@
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { AccountLayout, ProfilePage, SettingsPage } from "./account/pages";
 import { App } from "./App";
 import { AuthProvider, PublicOnly, RequireAuth, useAuth } from "./auth/auth";
 import { AuthLayout, PageTransition } from "./auth/AuthLayout";
@@ -20,6 +21,16 @@ function Auth({ children, publicOnly = true }: { children: ReactNode; publicOnly
     </PageTransition>
   );
   return publicOnly ? <PublicOnly>{page}</PublicOnly> : page;
+}
+
+function Account({ children }: { children: ReactNode }) {
+  return (
+    <RequireAuth>
+      <PageTransition>
+        <AccountLayout>{children}</AccountLayout>
+      </PageTransition>
+    </RequireAuth>
+  );
 }
 
 const root = document.getElementById("root");
@@ -45,6 +56,8 @@ createRoot(root).render(
               </RequireAuth>
             }
           />
+          <Route path="/profile" element={<Account><ProfilePage /></Account>} />
+          <Route path="/settings" element={<Account><SettingsPage /></Account>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
