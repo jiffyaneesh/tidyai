@@ -332,7 +332,11 @@ async def google_start(request: Request, next: str = "/app"):
     if not settings.google_enabled:
         return RedirectResponse(f"{settings.public_url}/login?error=google_disabled", status_code=303)
     request.session["auth_next"] = safe_next(next)
-    return await oauth.google.authorize_redirect(request, GOOGLE_CALLBACK)
+    try:
+        return await oauth.google.authorize_redirect(request, GOOGLE_CALLBACK)
+    except Exception as exc:  # Google metadata unreachable
+        log.warning("Google sign-in could not start: %s", type(exc).__name__)
+        return RedirectResponse(f"{settings.public_url}/login?error=google", status_code=303)
 
 
 def _claim_true(value) -> bool:
@@ -368,6 +372,9 @@ async def google_callback(request: Request):
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as exc:
         log.warning("Google sign-in failed: %s", exc.error)
+        return fail
+    except Exception as exc:  # bad id_token, network, metadata: a failed sign-in, never a 500
+        log.warning("Google sign-in failed: %s", type(exc).__name__)
         return fail
     info = token.get("userinfo") or {}
     subject = str(info.get("sub") or "")
@@ -408,7 +415,7 @@ async def update_me(body: ProfileIn, ctx: SessionContext = Depends(session_conte
 async def change_password(body: PasswordChangeIn, request: Request, ctx: SessionContext = Depends(session_context)):
     async with await db.connect() as conn:
         async with conn.transaction():
-            if await rate_limited(conn, f"pwchange:user:{ctx.id}", 10, WINDOW_15M):
+            if await rate_limited(conn, f"reauth:user:{ctx.id}", 10, WINDOW_15M):
                 return error(*TOO_MANY)
         if ctx.user["password_hash"] and not await verify_password_async(ctx.user["password_hash"], body.currentPassword):
             return error(403, "bad_password", "Current password is incorrect.")
@@ -465,6 +472,11 @@ async def delete_me(body: DeleteAccountIn, ctx: SessionContext = Depends(session
     if normalize_email(body.confirmEmail) != ctx.user["email"]:
         return error(400, "confirm_mismatch", "Type your account email exactly to confirm.")
     if ctx.user["password_hash"]:
+        # Shares the change-password bucket, so a stolen cookie is not a password oracle.
+        async with await db.connect() as conn:
+            async with conn.transaction():
+                if await rate_limited(conn, f"reauth:user:{ctx.id}", 10, WINDOW_15M):
+                    return error(*TOO_MANY)
         if not await verify_password_async(ctx.user["password_hash"], body.password):
             return error(403, "bad_password", "Password is incorrect.")
     else:

@@ -201,6 +201,13 @@ class AuthFlowTest(unittest.TestCase):
         self.assertEqual(done.status_code, 204)
         self.assertEqual(self.client.get("/v1/me").status_code, 401)
 
+    def test_delete_account_password_check_is_rate_limited(self):
+        email = self.signed_up_and_verified()
+        body = {"confirmEmail": email, "password": "wrong wrong wrong!"}
+        codes = [self.client.request("DELETE", "/v1/me", json=body, headers=HEADERS).status_code for _ in range(11)]
+        self.assertEqual((codes[0], codes[-1]), (403, 429))
+        self.assertEqual(self.client.get("/v1/me").status_code, 200)
+
     def test_google_link_drops_squatter_password(self):
         email = self.email()
         self.post("/v1/auth/signup", {"email": email, "password": GOOD})
