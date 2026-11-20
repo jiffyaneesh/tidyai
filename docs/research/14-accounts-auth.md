@@ -41,9 +41,9 @@ How do we add users, email/password, and Google sign-in to a FastAPI + React app
 | fastapi | GHSA-f56c-v883-vx8r, a parameter DoS. 0.162.0 is installed and affected. | `>=0.163.2` |
 | starlette | CVE-2026-48817/48818/54282/54283 | `>=1.3.1` (1.10.0 is installed and clear) |
 | python-multipart | CVE-2026-53537/53538/53539 (only if form parsing is pulled in) | `>=0.0.32` |
-| react-router | CVE-2026-22029 (data/framework mode), GHSA-9jcx-v3wj-wh4m | `>=7.12.0`, declarative mode |
+| react-router | CVE-2026-22029 (data/framework mode), GHSA-9jcx-v3wj-wh4m | `>=8.5.1` (8.5.2 installed), declarative mode |
 
-The full dependency audit runs in the security pass (unit 7).
+The full dependency audit and its fixes are in [15-security-pass.md](15-security-pass.md).
 
 ## Design
 

@@ -86,6 +86,10 @@ Fault UX ([docs/research/12-fault-ux.md](docs/research/12-fault-ux.md)): disable
 - Base URLs must be `http` or `https`, with no username or password. `TIDYAI_EGRESS=local` (the dev default) allows localhost models. `TIDYAI_EGRESS=hosted` requires https and a DNS-pinned connection to a public IP. Any multi-user deploy must run hosted, or a client-supplied base URL becomes server-side request forgery.
 - Every domain query is scoped to the session user through `projects.owner_id`. A miss returns 404. Sessions are opaque hashed tokens in an HttpOnly cookie. Unsafe methods need `X-Tidyai-Csrf` and an allowed `Origin`. Never log passwords, session tokens, or reset/verify tokens. One exception: with `TIDYAI_EGRESS=local` and no SMTP, `mailer.py` logs the mail body, link included, so sign-up works offline. Hosted mode drops the mail and logs only the subject.
 - The browser vault key is non-extractable, in IndexedDB. Ciphertext lives in `localStorage`. Do not fall back to storing the provider key in plaintext.
+- Model output never loads remote media on render. Chat images stay click-through links (`ChatImage`), because a prompt-injected URL can carry note text out.
+- Argon2 goes through `hash_password_async` and `verify_password_async`, never on the event loop. Any route that checks a password has a rate-limit bucket.
+- `HttpHardening` owns API headers and the 2 MiB body cap. The page CSP lives in `vite.config.ts` and [docs/research/15-security-pass.md](docs/research/15-security-pass.md). Hosted serving must send the same policy. Keep `script-src 'self'`: no inline scripts in `index.html`.
+- Dependency floors and the audit commands are in doc 15. Rerun `pip-audit` and `npm audit` before adding or bumping a dependency.
 
 ## Verify
 

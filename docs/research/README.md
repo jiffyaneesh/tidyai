@@ -24,6 +24,7 @@ For the **as-built** system map (processes, tech stack, function-level flows, ce
 | [12-fault-ux.md](12-fault-ux.md) | Prevent invalid actions; sticky vs toast; Sonner |
 | [13-workspace-polish.md](13-workspace-polish.md) | Layout persist/resize; chat pin + accessible reorder; rename |
 | [14-accounts-auth.md](14-accounts-auth.md) | Users, sessions, email/password, Google OIDC, owner scoping, egress guard |
+| [15-security-pass.md](15-security-pass.md) | CVE floors, findings fixed, production CSP, accepted risks, hosted checklist |
 
 ## Confidence legend
 
