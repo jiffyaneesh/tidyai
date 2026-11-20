@@ -84,7 +84,7 @@ Fault UX ([docs/research/12-fault-ux.md](docs/research/12-fault-ux.md)): disable
 - Never log `X-Provider-Key`, `Authorization`, or `x-goog-api-key`. Redact `sk-…` and `AIza…` before any error string leaves the process.
 - Provider calls use `follow_redirects=False`. A redirect is an error. The key is not forwarded.
 - Base URLs must be `http` or `https`, with no username or password. `TIDYAI_EGRESS=local` (the dev default) allows localhost models. `TIDYAI_EGRESS=hosted` requires https and a DNS-pinned connection to a public IP. Any multi-user deploy must run hosted, or a client-supplied base URL becomes server-side request forgery.
-- Every domain query is scoped to the session user through `projects.owner_id`. A miss returns 404. Sessions are opaque hashed tokens in an HttpOnly cookie. Unsafe methods need `X-Tidyai-Csrf` and an allowed `Origin`. Never log passwords, session tokens, or reset/verify tokens.
+- Every domain query is scoped to the session user through `projects.owner_id`. A miss returns 404. Sessions are opaque hashed tokens in an HttpOnly cookie. Unsafe methods need `X-Tidyai-Csrf` and an allowed `Origin`. Never log passwords, session tokens, or reset/verify tokens. One exception: with `TIDYAI_EGRESS=local` and no SMTP, `mailer.py` logs the mail body, link included, so sign-up works offline. Hosted mode drops the mail and logs only the subject.
 - The browser vault key is non-extractable, in IndexedDB. Ciphertext lives in `localStorage`. Do not fall back to storing the provider key in plaintext.
 
 ## Verify
@@ -94,10 +94,13 @@ Fault UX ([docs/research/12-fault-ux.md](docs/research/12-fault-ux.md)): disable
 | Agent policy or streaming | `cd services/agent && PYTHONPATH=src python3 -m unittest discover -s tests -v` |
 | One agent test file | `cd services/agent && PYTHONPATH=src python3 -m unittest tests.test_stream -v` |
 | API turn, Postgres up | `cd services/api && .venv/bin/python -m unittest tests.test_turn_flow -v` |
+| API auth, Postgres up | `cd services/api && .venv/bin/python -m unittest tests.test_auth_flow -v` |
 | Web types | `cd apps/web && npx tsc --noEmit` |
 | Web behavior | Load `http://127.0.0.1:5173`, send a turn, confirm the note pane updates and the key is not visible |
 
 Run the narrowest check that covers the edit. Say what you could not run.
+
+Every test that touches Postgres imports `tests.testdb` first. It points `DATABASE_URL` at `tidyai_test` and refuses any name not ending in `_test`. Tests create and delete accounts, and deleting an account cascades to its projects. Never run them against the dev database `tidyai`.
 
 ## Always / ask / never
 

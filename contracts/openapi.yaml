@@ -1,11 +1,17 @@
 openapi: 3.1.0
 info:
   title: tidyai
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    Live contract for the local single-user slice.
+    Live contract. Accounts follow docs/research/14-accounts-auth.md.
     Provider keys travel on X-Provider-Key, never in a JSON body.
     Flashcards are not in this version.
+
+    Auth is an opaque session cookie (__Host-tidyai_session over https,
+    tidyai_session on local http). Every POST, PATCH, PUT, DELETE needs
+    X-Tidyai-Csrf: 1 and an allowed Origin, or the guard answers 403 bad_origin.
+    Errors are {code, message}. Signup, forgot, and resend always answer 202
+    so they do not reveal whether an email has an account.
 
     POST /v1/chats/{chatId}/turns is text/event-stream:
     text, status, notes (JSON list of page ids), error ({code, message}), done.
@@ -29,6 +35,272 @@ paths:
                   db:
                     type: string
                     enum: [ok, down]
+  /v1/auth/config:
+    get:
+      operationId: authConfig
+      responses:
+        "200":
+          description: Sign-in options the server supports
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [googleEnabled, passwordMin, passwordMax]
+                properties:
+                  googleEnabled:
+                    type: boolean
+                  passwordMin:
+                    type: integer
+                  passwordMax:
+                    type: integer
+  /v1/auth/signup:
+    post:
+      operationId: signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                displayName:
+                  type: string
+      responses:
+        "202":
+          $ref: "#/components/responses/Accepted"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/verify:
+    post:
+      operationId: verifyEmail
+      description: Consumes the one-time token from the mailed link and signs the user in.
+      requestBody:
+        $ref: "#/components/requestBodies/Token"
+      responses:
+        "200":
+          $ref: "#/components/responses/Me"
+        "400":
+          $ref: "#/components/responses/Error"
+  /v1/auth/resend-verification:
+    post:
+      operationId: resendVerification
+      requestBody:
+        $ref: "#/components/requestBodies/Email"
+      responses:
+        "202":
+          $ref: "#/components/responses/Accepted"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Me"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          description: Email not verified (code email_unverified)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      responses:
+        "204":
+          description: Session ended and cookie cleared
+  /v1/auth/forgot:
+    post:
+      operationId: forgotPassword
+      requestBody:
+        $ref: "#/components/requestBodies/Email"
+      responses:
+        "202":
+          $ref: "#/components/responses/Accepted"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/auth/reset:
+    post:
+      operationId: resetPassword
+      description: Sets a new password, ends every session, does not sign in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "204":
+          description: Password changed
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/auth/google/start:
+    get:
+      operationId: googleStart
+      parameters:
+        - name: next
+          in: query
+          schema:
+            type: string
+          description: Same-origin path to land on after sign-in. Anything else becomes /app.
+      responses:
+        "302":
+          description: Redirect to Google with state, nonce, and PKCE S256
+        "303":
+          description: Google sign-in is not configured; back to /login?error=google_disabled
+  /v1/auth/google/callback:
+    get:
+      operationId: googleCallback
+      responses:
+        "303":
+          description: Signed in and sent to next, or sent to /login?error=google|google_unverified
+  /v1/me:
+    get:
+      operationId: getMe
+      responses:
+        "200":
+          $ref: "#/components/responses/Me"
+        "401":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: patchMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName]
+              properties:
+                displayName:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Me"
+    delete:
+      operationId: deleteMe
+      description: >
+        Deletes the account and every project it owns. Needs the account email.
+        Needs the password when the account has one. A Google-only account
+        needs a session younger than 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmEmail]
+              properties:
+                confirmEmail:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "204":
+          description: Account deleted and cookie cleared
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /v1/me/password:
+    post:
+      operationId: changePassword
+      description: Ends every other session. currentPassword is empty when the account has none yet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        "204":
+          description: Password changed
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+  /v1/me/sessions:
+    get:
+      operationId: listSessions
+      responses:
+        "200":
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+  /v1/me/sessions/{sessionId}:
+    delete:
+      operationId: revokeSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{16}$"
+      responses:
+        "204":
+          description: Session ended
+        "400":
+          description: That is the current session (use logout)
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/me/sessions/revoke-others:
+    post:
+      operationId: revokeOtherSessions
+      responses:
+        "200":
+          description: Count of ended sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked:
+                    type: integer
   /v1/projects:
     get:
       operationId: listProjects
@@ -255,7 +527,97 @@ components:
       required: true
       schema:
         type: string
+  requestBodies:
+    Email:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email]
+            properties:
+              email:
+                type: string
+    Token:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [token]
+            properties:
+              token:
+                type: string
+  responses:
+    Accepted:
+      description: Accepted. Same answer whether or not the email has an account.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok:
+                type: boolean
+    Error:
+      description: Failure with a stable code
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Me:
+      description: The signed-in user
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/User"
   schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    User:
+      type: object
+      required: [id, email, emailVerified, displayName, hasPassword, providers, createdAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        emailVerified:
+          type: boolean
+        displayName:
+          type: string
+        hasPassword:
+          type: boolean
+        providers:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      required: [id, current, createdAt, lastSeenAt]
+      properties:
+        id:
+          type: string
+        current:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+        userAgent:
+          type: string
+        ip:
+          type: string
     Project:
       type: object
       required: [id, title]

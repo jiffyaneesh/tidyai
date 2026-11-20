@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from psycopg import OperationalError
 from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
 
 from tidyai_agent.notes import (
     apply_note_ops,
@@ -39,6 +39,10 @@ from tidyai_agent.stream import (
 )
 from tidyai_agent.turn import route_turn
 from tidyai_api import db
+from tidyai_api.auth_routes import AuthError, current_user
+from tidyai_api.auth_routes import router as auth_router
+from tidyai_api.config import settings
+from tidyai_api.security import OriginGuard
 
 
 @asynccontextmanager
@@ -53,12 +57,27 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="tidyai", version="0.1.0", lifespan=lifespan)
+# The web app reaches the API same-origin through a proxy at /api, so there is no CORS.
+# Holds only Google OAuth state + PKCE verifier between redirect and callback.
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["*"],
-    allow_headers=["Content-Type", "X-Provider-Key", "X-Embedding-Key"],
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="tidyai_oauth",
+    max_age=600,
+    same_site="lax",
+    https_only=settings.cookie_secure,
 )
+app.add_middleware(OriginGuard, allowed_origins=settings.app_origins)
+app.include_router(auth_router)
+
+
+@app.exception_handler(AuthError)
+async def auth_error(_request: Request, exc: AuthError) -> JSONResponse:
+    return JSONResponse(
+        {"code": exc.code, "message": exc.message},
+        status_code=exc.status,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 class ProjectIn(BaseModel):
