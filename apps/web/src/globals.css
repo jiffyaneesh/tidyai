@@ -260,14 +260,69 @@ body {
   text-transform: uppercase;
 }
 
+/* Route transitions. React's <ViewTransition> sets these classes; the page itself is not snapshotted. */
+:root {
+  view-transition-name: none;
+}
+
+@keyframes vt-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+@keyframes vt-out {
+  to { opacity: 0; transform: translateY(-4px); }
+}
+
+::view-transition-new(.page-in) {
+  animation: vt-in 250ms var(--ease) both;
+}
+::view-transition-old(.page-out) {
+  animation: vt-out 200ms var(--ease) both;
+}
+::view-transition-new(.form-in) {
+  animation: vt-in 250ms var(--ease) 60ms both;
+}
+::view-transition-old(.form-out) {
+  animation: vt-out 160ms var(--ease) both;
+}
+
+/* Auth art: a slow settle on load, then still. The study note assembles line by line. */
+@keyframes art-settle {
+  from { transform: scale(1.06); }
+  to { transform: scale(1); }
+}
+
+.auth-art-img {
+  animation: art-settle 1400ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.auth-note {
+  background: color-mix(in srgb, #ffffff 52%, transparent);
+  border: 1px solid color-mix(in srgb, #ffffff 70%, transparent);
+  box-shadow: 0 30px 60px -30px #3b2a7a55, inset 0 1px 0 #ffffffaa;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.note-line {
+  animation: rise 520ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 140ms + 350ms);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }
 

@@ -1,4 +1,7 @@
-const API = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+// Same-origin path. Vite proxies it in dev; a reverse proxy does in production.
+const API = "/api";
+const CSRF = { "X-Tidyai-Csrf": "1" };
+export const UNAUTHORIZED_EVENT = "tidyai:unauthorized";
 
 export type Project = { id: string; title: string; rootPageId?: string };
 export type Chat = { id: string; projectId: string; title: string };
@@ -20,24 +23,87 @@ export type Block = {
   version: number;
 };
 
-async function readError(response: Response): Promise<string> {
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
+async function readError(response: Response): Promise<ApiError> {
   const body = (await response.json().catch(() => null)) as {
+    code?: string;
     message?: string;
     detail?: string | { msg?: string }[];
   } | null;
-  if (body?.message) return body.message;
-  if (typeof body?.detail === "string") return body.detail;
-  return `Request failed (${response.status}).`;
+  const message =
+    body?.message ?? (typeof body?.detail === "string" ? body.detail : `Request failed (${response.status}).`);
+  if (response.status === 401 && body?.code === "unauthenticated") {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+  return new ApiError(message, response.status, body?.code ?? "");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...CSRF, ...init?.headers },
   });
-  if (!response.ok) throw new Error(await readError(response));
+  if (!response.ok) throw await readError(response);
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
+
+function post<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
+  return request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+}
+
+export type User = {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  displayName: string;
+  hasPassword: boolean;
+  providers: string[];
+  createdAt: string;
+};
+export type AuthConfig = { googleEnabled: boolean; passwordMin: number; passwordMax: number };
+export type SessionInfo = {
+  id: string;
+  current: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  userAgent?: string;
+  ip?: string;
+};
+
+export const auth = {
+  config: () => request<AuthConfig>("/v1/auth/config"),
+  me: () => request<User>("/v1/me"),
+  signup: (email: string, password: string, displayName: string) =>
+    post<{ ok: boolean }>("/v1/auth/signup", { email, password, displayName }),
+  verify: (token: string) => post<User>("/v1/auth/verify", { token }),
+  resend: (email: string) => post<{ ok: boolean }>("/v1/auth/resend-verification", { email }),
+  login: (email: string, password: string) => post<User>("/v1/auth/login", { email, password }),
+  logout: () => post<void>("/v1/auth/logout"),
+  forgot: (email: string) => post<{ ok: boolean }>("/v1/auth/forgot", { email }),
+  reset: (token: string, password: string) => post<void>("/v1/auth/reset", { token, password }),
+  googleStart: (next: string) => `${API}/v1/auth/google/start?next=${encodeURIComponent(next)}`,
+};
+
+export const account = {
+  update: (displayName: string) => post<User>("/v1/me", { displayName }, "PATCH"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<void>("/v1/me/password", { currentPassword, newPassword }),
+  sessions: () => request<SessionInfo[]>("/v1/me/sessions"),
+  revokeSession: (id: string) => post<void>(`/v1/me/sessions/${encodeURIComponent(id)}`, undefined, "DELETE"),
+  revokeOthers: () => post<{ revoked: number }>("/v1/me/sessions/revoke-others"),
+  remove: (confirmEmail: string, password: string) => post<void>("/v1/me", { confirmEmail, password }, "DELETE"),
+};
 
 export function health(): Promise<{ status: string; db: string }> {
   return request("/health");
@@ -119,11 +185,12 @@ export async function streamTurn(
   signal: AbortSignal,
   embeddingKey = "",
 ): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", "X-Provider-Key": apiKey };
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...CSRF, "X-Provider-Key": apiKey };
   if (embeddingKey) headers["X-Embedding-Key"] = embeddingKey;
   const response = await fetch(`${API}/v1/chats/${chatId}/turns`, {
     method: "POST",
     signal,
+    credentials: "same-origin",
     headers,
     body: JSON.stringify({
       text: body.text,
@@ -137,7 +204,7 @@ export async function streamTurn(
       mode: body.mode,
     }),
   });
-  if (!response.ok || !response.body) throw new Error(await readError(response));
+  if (!response.ok || !response.body) throw await readError(response);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
