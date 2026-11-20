@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactElement } from "react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
 import {
@@ -1019,7 +1019,9 @@ export function App() {
                               {copiedId === message.id ? "Copied" : "Copy"}
                             </Button>
                           </div>
-                          <Streamdown plugins={{ math }}>{message.content}</Streamdown>
+                          <Streamdown plugins={{ math }} components={chatComponents}>
+                            {message.content}
+                          </Streamdown>
                         </div>
                       ) : (
                         <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
@@ -1032,7 +1034,7 @@ export function App() {
                         ✳
                       </span>
                       <div className="leading-relaxed [&_em]:text-accent [&_i]:text-accent">
-                        <Streamdown plugins={{ math }} isAnimating>
+                        <Streamdown plugins={{ math }} components={chatComponents} isAnimating>
                           {streaming}
                         </Streamdown>
                       </div>
@@ -1248,6 +1250,20 @@ export function App() {
     </TooltipProvider>
   );
 }
+
+// A rendered remote image is a request the reader never chose: a prompt-injected
+// reply could put note text in its URL. Images stay links until clicked.
+function ChatImage({ src, alt }: ComponentProps<"img">) {
+  const label = alt?.trim() || "image";
+  if (typeof src !== "string" || !/^https?:\/\//i.test(src)) return <span className="text-muted-foreground">[{label}]</span>;
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer">
+      [{label}]
+    </a>
+  );
+}
+
+const chatComponents = { img: ChatImage };
 
 function IconTip({ label, children }: { label: string; children: ReactElement }) {
   return (
