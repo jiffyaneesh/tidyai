@@ -34,6 +34,7 @@ from tidyai_agent.stream import (
     ProviderError,
     check_base_url,
     check_model,
+    configure_egress,
     embed_texts,
     stream_chat,
 )
@@ -44,6 +45,7 @@ from tidyai_api.auth_routes import router as auth_router
 from tidyai_api.config import settings
 from tidyai_api.security import OriginGuard
 
+configure_egress(allow_private=not settings.hosted)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -6,8 +6,11 @@ A new host that speaks OpenAI chat completions is a settings row, not a change h
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 import re
+import socket
 from collections.abc import AsyncIterator, Mapping
 from urllib.parse import quote, urlparse
 
@@ -35,6 +38,29 @@ def redact(text: str) -> str:
     return _SECRET.sub("redacted", text)
 
 
+# ponytail: one egress mode per process. Make it per call if one process ever serves both modes.
+_egress = {"allow_private": True}
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def configure_egress(*, allow_private: bool) -> None:
+    """Hosted servers pass False: provider calls may only reach public addresses."""
+    _egress["allow_private"] = allow_private
+
+
+def is_public_address(raw: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(raw.split("%", 1)[0])
+    except ValueError:
+        return False
+    if addr.version == 6:
+        if addr.ipv4_mapped:
+            addr = addr.ipv4_mapped
+        elif addr in _NAT64:
+            addr = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return addr.is_global and not addr.is_multicast
+
+
 def check_base_url(url: str) -> str:
     cleaned = url.strip()
     parsed = urlparse(cleaned)
@@ -42,7 +68,54 @@ def check_base_url(url: str) -> str:
         raise ProviderError("bad_base_url", "Base URL must start with http:// or https://.")
     if parsed.username or parsed.password:
         raise ProviderError("bad_base_url", "Base URL must not include a username or password.")
+    if not _egress["allow_private"]:
+        try:
+            port = parsed.port
+        except ValueError:
+            port = -1
+        if parsed.scheme != "https" or port not in {None, 443}:
+            raise ProviderError("bad_base_url", "Base URL must be https on the default port.")
+        host = parsed.hostname or ""
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            if not is_public_address(host):
+                raise ProviderError("blocked_host", "Base URL must be a public host.")
     return cleaned.rstrip("/")
+
+
+class PublicOnlyTransport(httpx.AsyncHTTPTransport):
+    """Resolve once, refuse any non-public answer, then dial that IP.
+
+    Dialing the vetted IP (TLS still checks the real hostname through SNI) means a
+    second DNS answer cannot swap in an internal address between check and connect.
+    """
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        host = request.url.host
+        try:
+            infos = await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(
+                    host, request.url.port or 443, type=socket.SOCK_STREAM
+                ),
+                timeout=5.0,
+            )
+        except (OSError, asyncio.TimeoutError):
+            raise ProviderError("upstream", "Could not resolve the provider host.") from None
+        addresses = [info[4][0] for info in infos]
+        if not addresses or not all(is_public_address(addr) for addr in addresses):
+            raise ProviderError("blocked_host", "Provider host resolves to a non-public address.")
+        request.url = request.url.copy_with(host=addresses[0])
+        request.extensions = {**request.extensions, "sni_hostname": host}
+        return await super().handle_async_request(request)
+
+
+def _egress_transport(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncBaseTransport | None:
+    if transport is not None or _egress["allow_private"]:
+        return transport
+    return PublicOnlyTransport()
 
 
 def check_model(model: str) -> str:
@@ -268,6 +341,7 @@ async def stream_chat(
 
     timeout = httpx.Timeout(10.0, read=120.0)
     sent = 0
+    transport = _egress_transport(transport)
     async with httpx.AsyncClient(timeout=timeout, transport=transport, follow_redirects=False) as client:
         try:
             async with client.stream("POST", url, headers=headers, json=body) as response:
@@ -357,6 +431,7 @@ async def embed_texts(
     base = check_base_url(base_url)
     model_id = check_model(model)
     timeout = httpx.Timeout(10.0, read=60.0)
+    transport = _egress_transport(transport)
     try:
         async with httpx.AsyncClient(timeout=timeout, transport=transport, follow_redirects=False) as client:
             if protocol == "openai_chat":
