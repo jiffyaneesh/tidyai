@@ -4,9 +4,13 @@ version = "0.1.0"
 description = "HTTP boundary for tidyai. Transactions live here. Prompts do not."
 requires-python = ">=3.11"
 dependencies = [
-  "fastapi>=0.115",
+  "fastapi>=0.163.2",
+  "starlette>=1.3.1",
   "uvicorn>=0.32",
   "psycopg[binary]>=3.2",
+  "argon2-cffi>=25.1",
+  "authlib>=1.9.10",
+  "itsdangerous>=2.2",
 ]
 
 [build-system]

@@ -60,3 +60,59 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS chunks_project ON chunks (project_id);
 CREATE INDEX IF NOT EXISTS chunks_tsv ON chunks USING gin (tsv);
 CREATE INDEX IF NOT EXISTS chunks_embedding ON chunks USING hnsw (embedding vector_cosine_ops);
+
+-- Accounts. See docs/research/14-accounts-auth.md.
+CREATE TABLE IF NOT EXISTS users (
+  id text PRIMARY KEY,
+  email text NOT NULL UNIQUE CHECK (email = lower(email)),
+  email_verified_at timestamptz,
+  password_hash text,
+  display_name text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+  provider text NOT NULL,
+  subject text NOT NULL,
+  user_id text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  email text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider, subject)
+);
+
+CREATE INDEX IF NOT EXISTS oauth_accounts_user ON oauth_accounts (user_id);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  user_agent text NOT NULL DEFAULT '',
+  ip text NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  token_hash text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  purpose text NOT NULL CHECK (purpose IN ('verify_email', 'reset_password')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS auth_tokens_user ON auth_tokens (user_id, purpose);
+
+CREATE TABLE IF NOT EXISTS rate_events (
+  bucket text NOT NULL,
+  at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS rate_events_bucket ON rate_events (bucket, at);
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_id text REFERENCES users (id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS projects_owner ON projects (owner_id, created_at);
