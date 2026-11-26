@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from typing import Literal
 from uuid import uuid4
@@ -47,6 +48,7 @@ from tidyai_api.config import settings
 from tidyai_api.security import HttpHardening, OriginGuard
 
 configure_egress(allow_private=not settings.hosted)
+log = logging.getLogger("tidyai.turn")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -533,6 +535,7 @@ async def create_turn(
             yield sse("done", "{}")
             return
 
+        # Web mode always attempts note ops after a non-empty answer.
         yield sse("status", "Updating notes")
         try:
             ops, failure = await note_ops_from_answer(
@@ -545,12 +548,20 @@ async def create_turn(
             )
         except ProviderError as exc:
             await _keep_answer(prepared["projectId"], message_id, text)
+            log.warning("Note ops provider failure: %s", exc.message)
             yield sse("status", f"Notes not updated. {exc.message}")
             yield sse("done", "{}")
             return
         if failure:
             await _keep_answer(prepared["projectId"], message_id, text)
+            log.warning("Note ops parse failure: %s", failure)
             yield sse("status", failure)
+            yield sse("done", "{}")
+            return
+        if not ops:
+            # Pipeline ran; model chose no edits. Still emit notes so the UI refreshes.
+            yield sse("notes", "[]")
+            yield sse("status", "No new notes from this answer.")
             yield sse("done", "{}")
             return
         result = apply_note_ops(
@@ -571,6 +582,8 @@ async def create_turn(
         yield sse("notes", json.dumps(result["touchedPageIds"]))
         if result["skipped"]:
             yield sse("status", "Some note updates were skipped.")
+        elif not result["touchedPageIds"]:
+            yield sse("status", "No new notes from this answer.")
         yield sse("done", "{}")
 
     return StreamingResponse(

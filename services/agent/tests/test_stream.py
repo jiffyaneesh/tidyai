@@ -252,6 +252,31 @@ class StreamTests(unittest.TestCase):
         self.assertEqual(_run(collect()), "ok")
         self.assertEqual(seen["body"]["tools"], [{"google_search": {}}])
 
+    def test_json_object_sets_response_format(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content.decode())
+            body = 'data: {"choices":[{"delta":{"content":"{\\"ops\\":[]}"}}]}\n\ndata: [DONE]\n\n'
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+        async def collect():
+            parts = []
+            async for part in stream_chat(
+                protocol="openai_chat",
+                base_url="https://example.com/v1",
+                api_key="sk-test-secret-value-123456",
+                model="demo",
+                messages=[{"role": "user", "content": "Hi"}],
+                json_object=True,
+                transport=httpx.MockTransport(handler),
+            ):
+                parts.append(part)
+            return "".join(parts)
+
+        self.assertIn("ops", _run(collect()))
+        self.assertEqual(seen["body"]["response_format"], {"type": "json_object"})
+
 
 if __name__ == "__main__":
     unittest.main()

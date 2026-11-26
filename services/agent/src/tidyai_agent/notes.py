@@ -11,7 +11,7 @@ import json
 import re
 from collections.abc import Callable
 
-from tidyai_agent.stream import complete_chat
+from tidyai_agent.stream import ProviderError, complete_chat
 from tidyai_agent.turn import BLOCK_TYPES, validate_note_op
 
 MAX_OPS = 20
@@ -37,6 +37,7 @@ equation uses {"latex":"..."}.
 table uses {"rows":[["cell"]]}.
 child_page uses {"title":"..."} and creates a page. Do not invent page or block ids.
 Prefer replace when the answer corrects an existing block. Use at most 20 ops.
+For a fresh page with no blocks, insert the key facts as short paragraphs under the current page.
 If the answer adds nothing worth keeping, return {"ops":[]}."""
 
 
@@ -289,15 +290,29 @@ def _next_position(rows: list[dict], parent_id: str, page_key: str = "parent_id"
     return (max(positions) + 1) if positions else 0
 
 
+async def _complete_json(messages: list[dict], **provider) -> str:
+    """Prefer json_object on openai_chat; fall back when the host rejects the field."""
+    if provider.get("protocol") == "openai_chat":
+        try:
+            return await complete_chat(messages=messages, json_object=True, **provider)
+        except ProviderError as exc:
+            # Groq and others sometimes 400 on response_format for a given model.
+            if "400" not in exc.message and "response_format" not in exc.message.lower():
+                raise
+    return await complete_chat(messages=messages, **provider)
+
+
 async def note_ops_from_answer(*, outline: str, answer: str, **provider) -> tuple[list[dict], str | None]:
     """Return ops. The second value is a safe status when parsing fails."""
-    text = await complete_chat(messages=note_messages(outline=outline, answer=answer), **provider)
+    text = await _complete_json(note_messages(outline=outline, answer=answer), **provider)
+    if not text.strip():
+        return [], "Notes not updated. The provider returned an empty note patch."
     try:
         return parse_ops_payload(text), None
     except (ValueError, json.JSONDecodeError):
         pass
-    repaired = await complete_chat(messages=repair_messages(text), **provider)
+    repaired = await _complete_json(repair_messages(text), **provider)
     try:
         return parse_ops_payload(repaired), None
     except (ValueError, json.JSONDecodeError):
-        return [], "Notes not updated."
+        return [], "Notes not updated. The provider did not return valid note JSON."

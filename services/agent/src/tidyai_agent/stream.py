@@ -315,6 +315,7 @@ async def stream_chat(
     assembler: ToolAssembler | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     web_search: bool = False,
+    json_object: bool = False,
 ) -> AsyncIterator[str]:
     if protocol not in PROTOCOLS:
         raise ProviderError("bad_protocol", "Protocol must be openai_chat or gemini.")
@@ -329,6 +330,9 @@ async def stream_chat(
         # A1: Chat Completions search path. Hosts that lack it return 4xx → ProviderError.
         if web_search:
             body["web_search_options"] = {"search_context_size": "medium"}
+        # Note-ops need strict JSON. Hosts that reject response_format answer 4xx → caller retries.
+        if json_object:
+            body["response_format"] = {"type": "json_object"}
     else:
         url = _gemini_url(base, model_id)
         headers = {"x-goog-api-key": api_key.strip(), "Content-Type": "application/json"}

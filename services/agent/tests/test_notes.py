@@ -1,6 +1,8 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
-from tidyai_agent.notes import apply_note_ops, parse_ops_payload
+from tidyai_agent.notes import apply_note_ops, note_ops_from_answer, parse_ops_payload
+from tidyai_agent.stream import ProviderError
 
 
 def _ids():
@@ -111,6 +113,45 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(result["pages"][1]["depth"], 1)
         self.assertEqual(result["blocks"][-1]["type"], "child_page")
         self.assertIn("page-1", result["touchedPageIds"])
+
+
+class NoteOpsFromAnswerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_prefers_json_object_then_parses(self):
+        with patch(
+            "tidyai_agent.notes.complete_chat",
+            new=AsyncMock(return_value='{"ops":[{"op":"delete","blockId":"b"}]}'),
+        ) as complete:
+            ops, failure = await note_ops_from_answer(
+                outline="- page p",
+                answer="Torque is r cross F.",
+                protocol="openai_chat",
+                base_url="https://api.groq.com/openai/v1",
+                api_key="sk-test",
+                model="llama",
+            )
+        self.assertIsNone(failure)
+        self.assertEqual(ops[0]["op"], "delete")
+        self.assertTrue(complete.await_args.kwargs.get("json_object"))
+
+    async def test_retries_without_json_object_on_400(self):
+        calls = {"n": 0}
+
+        async def fake(**kwargs):
+            calls["n"] += 1
+            if kwargs.get("json_object"):
+                raise ProviderError("upstream", "Provider returned 400. response_format")
+            return '{"ops":[]}'
+
+        with patch("tidyai_agent.notes.complete_chat", new=fake):
+            ops, failure = await note_ops_from_answer(
+                outline="- page p",
+                answer="hi",
+                protocol="openai_chat",
+                base_url="https://api.groq.com/openai/v1",
+                api_key="sk-test",
+                model="llama",
+            )
+        self.assertEqual((ops, failure, calls["n"]), ([], None, 2))
 
 
 if __name__ == "__main__":

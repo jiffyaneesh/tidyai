@@ -501,6 +501,12 @@ export function App() {
             if (event.data === "Searching notes") {
               setStudyStats(bumpStudyStat("searches"));
             }
+            // Note-ops failures used to flash and vanish; toast keeps them visible.
+            if (/^Notes not updated/i.test(event.data)) {
+              toast.error(friendlyError(event.data));
+            } else if (event.data === "No new notes from this answer.") {
+              toast.message(event.data);
+            }
           } else if (event.event === "citations") {
             try {
               const parsed = JSON.parse(event.data) as Citation[];

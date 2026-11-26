@@ -10,6 +10,10 @@ const FRIENDLY: Array<{ test: RegExp; message: string }> = [
   { test: /bad_model|model id is missing/i, message: "Pick a model in Settings. The current profile has none." },
   { test: /bad_protocol/i, message: "That provider protocol is not supported. Use OpenAI-compatible or Gemini." },
   { test: /web search failed|web search redirected/i, message: "Web search failed. Retry, or switch to Notes mode." },
+  {
+    test: /notes not updated/i,
+    message: "Answer saved, but notes were not updated. Retry the question, or paste the fact into the notes pane.",
+  },
   { test: /empty answer|provider returned an empty/i, message: "The provider returned an empty answer. Try again or switch model." },
   { test: /too_long|size cap/i, message: "The answer was too long. Ask a narrower question." },
   { test: /redirected/i, message: "The provider redirected the request. Check the base URL in Settings." },
