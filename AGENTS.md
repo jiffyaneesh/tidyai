@@ -67,7 +67,7 @@ KISS ceilings already chosen. Do not cross them in a drive-by:
 
 The shell is three panes: sidebar 260px (rail 56px), chat column capped at 768px, notes default 360px and drag-resizable (280–640). Under 960px the notes pane is an overlay. Its Close control must stay reachable. Do not cover it with the pane. Notes use BlockNote as the writing surface with debounced autosave; Postgres typed blocks stay the source of truth ([docs/research/10-notes-editor-engine.md](docs/research/10-notes-editor-engine.md)). Do not store the page as a markdown file.
 
-Header toggle **Notes | Web** ([docs/research/11-study-modes.md](docs/research/11-study-modes.md)): **web** (default) uses provider web search then note ops; **notes** is pure Q&A via `search_notes` only — no note writes.
+Header toggle **Notes | Web** ([docs/research/11-study-modes.md](docs/research/11-study-modes.md)): **web** (default) searches the web then note ops — OpenAI/Gemini use provider-native search; other `openai_chat` hosts (Groq, local, …) use server `search_web`; **notes** is pure Q&A via `search_notes` only — no note writes.
 
 Fault UX ([docs/research/12-fault-ux.md](docs/research/12-fault-ux.md)): disable invalid actions with a nearby reason; sticky banner for DB down; Sonner toasts for transient outcomes; map errors through `friendlyError`.
 

@@ -9,7 +9,7 @@ const FRIENDLY: Array<{ test: RegExp; message: string }> = [
   { test: /missing_key|provider key|add a provider key/i, message: "Add a provider API key in Settings before you send." },
   { test: /bad_model|model id is missing/i, message: "Pick a model in Settings. The current profile has none." },
   { test: /bad_protocol/i, message: "That provider protocol is not supported. Use OpenAI-compatible or Gemini." },
-  { test: /web mode needs a host|web_search/i, message: "Web mode needs OpenAI search or Gemini. Switch to Notes mode, or change provider." },
+  { test: /web search failed|web search redirected/i, message: "Web search failed. Retry, or switch to Notes mode." },
   { test: /empty answer|provider returned an empty/i, message: "The provider returned an empty answer. Try again or switch model." },
   { test: /too_long|size cap/i, message: "The answer was too long. Ask a narrower question." },
   { test: /redirected/i, message: "The provider redirected the request. Check the base URL in Settings." },

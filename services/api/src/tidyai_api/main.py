@@ -39,6 +39,7 @@ from tidyai_agent.stream import (
     stream_chat,
 )
 from tidyai_agent.turn import route_turn
+from tidyai_agent.websearch import format_web_hits, native_web_search, search_web
 from tidyai_api import db
 from tidyai_api.auth_routes import AuthError, current_user
 from tidyai_api.auth_routes import router as auth_router
@@ -374,6 +375,7 @@ async def create_turn(
     page_text = format_page(prepared["pageBlocks"])
     messages = study_messages(history, outline=outline, page_text=page_text)
     mode = body.mode
+    use_native_web = mode == "web" and native_web_search(body.protocol, base)
     if messages and messages[0].get("role") == "system":
         if mode == "notes":
             messages[0] = {
@@ -382,11 +384,18 @@ async def create_turn(
                 + TOOL_HINT
                 + "\n\nMode: notes. Answer only from the outline, current page, and search_notes. Do not invent outside facts. Do not propose note edits.",
             }
-        else:
+        elif use_native_web:
             messages[0] = {
                 **messages[0],
                 "content": messages[0]["content"]
                 + "\n\nMode: web. Use provider web search when the question needs current or outside facts. The session will update study notes after your answer.",
+            }
+        else:
+            # Groq and other openai_chat hosts: server searches, then the model answers.
+            messages[0] = {
+                **messages[0],
+                "content": messages[0]["content"]
+                + "\n\nMode: web. Web search results are attached as tool output. Prefer those facts when present. The session will update study notes after your answer.",
             }
     embed = _embedding_config(body, base, provider["api_key"], x_embedding_key)
 
@@ -403,28 +412,46 @@ async def create_turn(
         live = messages
         if mode == "web":
             try:
-                async for piece in stream_chat(
-                    messages=live,
-                    tools=None,
-                    web_search=True,
-                    **provider,
-                ):
-                    if await request.is_disconnected():
-                        disconnected = True
-                        break
-                    chunks.append(piece)
-                    yield sse("text", piece)
+                if use_native_web:
+                    async for piece in stream_chat(
+                        messages=live,
+                        tools=None,
+                        web_search=True,
+                        **provider,
+                    ):
+                        if await request.is_disconnected():
+                            disconnected = True
+                            break
+                        chunks.append(piece)
+                        yield sse("text", piece)
+                else:
+                    # Any openai_chat host (Groq, local, …): search here, then stream.
+                    yield sse("status", "Searching the web")
+                    web_text, web_citations = await _run_web_search(body.text)
+                    if web_citations:
+                        yield sse("citations", json.dumps(web_citations))
+                    forced = ToolCall(
+                        id="forced_web",
+                        name="search_web",
+                        arguments=json.dumps({"query": body.text}),
+                    )
+                    live = append_tool_results(live, [forced], [web_text])
+                    async for piece in stream_chat(
+                        messages=live,
+                        tools=None,
+                        web_search=False,
+                        **provider,
+                    ):
+                        if await request.is_disconnected():
+                            disconnected = True
+                            break
+                        chunks.append(piece)
+                        yield sse("text", piece)
             except ProviderError as exc:
                 text = "".join(chunks)
                 if text:
                     await _save_quiet(chat_id, text)
-                message = exc.message
-                if exc.code == "upstream":
-                    message = (
-                        f"{exc.message} Web mode needs a host that supports provider web search "
-                        "(OpenAI search-capable Chat Completions, or Gemini). Or switch to Notes mode."
-                    )
-                yield sse("error", json.dumps({"code": exc.code, "message": message}))
+                yield sse("error", json.dumps({"code": exc.code, "message": exc.message}))
                 yield sse("done", "{}")
                 return
         else:
@@ -583,6 +610,22 @@ async def _embed_pending(project_id: str, embed: dict) -> None:
     ]
     if pairs:
         await db.write_embeddings(pairs)
+
+
+async def _run_web_search(query: str) -> tuple[str, list[dict]]:
+    try:
+        hits = await search_web(query)
+    except ProviderError as exc:
+        return f"Web search failed. {exc.message}", []
+    citations = [
+        {
+            "sourceType": "web",
+            "sourceId": hit.get("url"),
+            "snippet": str(hit.get("snippet") or hit.get("title") or "").replace("\n", " ")[:140],
+        }
+        for hit in hits
+    ]
+    return format_web_hits(hits), citations
 
 
 async def _run_search(

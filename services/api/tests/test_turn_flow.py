@@ -7,6 +7,7 @@ import re
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import AsyncMock, patch
 
 from tests import testdb  # noqa: F401  isort: skip
 from fastapi.testclient import TestClient
@@ -112,24 +113,29 @@ class TurnFlowTest(unittest.TestCase):
         project = self.client.post("/v1/projects", json={"title": "Flow test"}).json()
         chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
         _Provider.bodies.clear()
-        with self.client.stream(
-            "POST",
-            f"/v1/chats/{chat['id']}/turns",
-            headers={"X-Provider-Key": secret},
-            json={
-                "text": "What is torque?",
-                "protocol": "openai_chat",
-                "baseUrl": f"http://127.0.0.1:{self.port}/v1",
-                "model": "fake",
-                "pageId": project["rootPageId"],
-                "mode": "web",
-            },
-        ) as response:
-            raw = "".join(response.iter_text())
+        # Local/Groq-style host: server search_web, not OpenAI web_search_options.
+        fake_hits = [{"title": "Torque", "url": "https://example.com/torque", "snippet": "Torque turns."}]
+        with patch("tidyai_api.main.search_web", new=AsyncMock(return_value=fake_hits)):
+            with self.client.stream(
+                "POST",
+                f"/v1/chats/{chat['id']}/turns",
+                headers={"X-Provider-Key": secret},
+                json={
+                    "text": "What is torque?",
+                    "protocol": "openai_chat",
+                    "baseUrl": f"http://127.0.0.1:{self.port}/v1",
+                    "model": "fake",
+                    "pageId": project["rootPageId"],
+                    "mode": "web",
+                },
+            ) as response:
+                raw = "".join(response.iter_text())
         self.assertNotIn(secret, raw)
+        self.assertIn("Searching the web", raw)
         self.assertIn("Torque is a turning effect.", raw)
         self.assertIn("event: notes", raw)
-        self.assertTrue(any("web_search_options" in body for body in _Provider.bodies))
+        self.assertTrue(any("search_web" in body for body in _Provider.bodies))
+        self.assertFalse(any("web_search_options" in body for body in _Provider.bodies))
         page = self.client.get(f"/v1/projects/{project['id']}/pages/{project['rootPageId']}").json()
         texts = [block["payload"].get("text") for block in page["blocks"]]
         self.assertIn("Torque is r cross F.", texts)
@@ -137,6 +143,32 @@ class TurnFlowTest(unittest.TestCase):
         self.assertEqual(messages[-1]["content"], "Torque is a turning effect.")
         renamed = self.client.get(f"/v1/projects/{project['id']}/chats").json()
         self.assertEqual(renamed[0]["title"], "What is torque?")
+
+    def test_openai_host_still_uses_native_web_search(self):
+        secret = "sk-test-secret-value-123456"
+        project = self.client.post("/v1/projects", json={"title": "OpenAI web"}).json()
+        chat = self.client.post(f"/v1/projects/{project['id']}/chats", json={"title": "Untitled chat"}).json()
+        _Provider.bodies.clear()
+        # Point at the fake provider but claim an OpenAI hostname via native_web_search patch.
+        with patch("tidyai_api.main.native_web_search", return_value=True):
+            with self.client.stream(
+                "POST",
+                f"/v1/chats/{chat['id']}/turns",
+                headers={"X-Provider-Key": secret},
+                json={
+                    "text": "What is torque?",
+                    "protocol": "openai_chat",
+                    "baseUrl": f"http://127.0.0.1:{self.port}/v1",
+                    "model": "fake",
+                    "pageId": project["rootPageId"],
+                    "mode": "web",
+                },
+            ) as response:
+                raw = "".join(response.iter_text())
+        self.assertIn("Torque is a turning effect.", raw)
+        self.assertIn("event: notes", raw)
+        self.assertTrue(any("web_search_options" in body for body in _Provider.bodies))
+        self.assertNotIn("Searching the web", raw)
 
     def test_search_tool_returns_an_older_note(self):
         import asyncio
